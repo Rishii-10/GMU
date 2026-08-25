@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "triage-streamlit",
+      "runtimeExecutable": "/Users/sanjivan/Documents/Gmu Research/triage-poc/run_streamlit.sh",
+      "runtimeArgs": [],
+      "port": 8501,
+      "autoPort": true
+    }
+  ]
+}

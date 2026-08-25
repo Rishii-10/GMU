@@ -1,0 +1,28 @@
+# Beyond Triage / Rural Health Triage POC — dependencies
+# Installed incrementally as milestones require them (see Implementation Plan v2, Section 13 cost summary).
+# Currently required for: Step 1 (Agent 1 -> schema -> Rules Engine wiring)
+pydantic>=2.6
+requests>=2.31
+pytest>=8.0
+
+# Milestone 3 (FAISS disambiguation) — installed, in use (app/disambiguation.py):
+faiss-cpu>=1.8,<2.0
+sentence-transformers>=2.6,<3.0
+
+# Required from Milestone 7 onward (Agent 2: DBSCAN + RAG):
+# scikit-learn>=1.4
+
+# Routing Agent (Agent 3, app/routing/, app/integrations/geo.py) — in use.
+# OpenRouteService is a plain HTTP API, uses requests above; no extra SDK.
+# MockRoutingProvider (offline default) needs nothing beyond requests either.
+
+# Milestone 6 (Streamlit health officer dashboard, streamlit_app.py):
+streamlit>=1.32
+
+# Cloud LLM fallback (Groq) — plain HTTP via requests above, no SDK dependency required.
+
+# External integration adapters (app/integrations/) — in use, offline-mock
+# default (MockProvider/IdentityTranslator), real providers opt-in via env:
+# Twilio (messaging.py) and Google Translate (translation.py) both use their
+# plain REST APIs via requests above — no twilio or google-cloud-translate
+# SDK dependency, same "requests-only" choice already made for Groq/ORS.
