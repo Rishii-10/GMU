@@ -72,6 +72,89 @@ Two age-routing decisions matter most for reading this diagram:
    does "were all four actually asked?" become the safety-relevant
    question (`INCOMPLETE_ASSESSMENT` if not).
 
+## Incomplete-Assessment Logic: how "not enough info" is decided
+
+`INCOMPLETE_ASSESSMENT` is not a fallback for a low-confidence guess -- it's
+a distinct, deliberate state (`app/schemas.py::ClassificationLabel`,
+ranked outside the severity scale on purpose). The rule throughout this
+codebase is: **a field the system never asked about (`None`) must never be
+treated as "assessed and absent" (`False`)** -- so `classify()` refuses to
+score an axis it doesn't have real data for, and says so explicitly
+instead of silently assuming the safe-looking answer. There are exactly
+three places this can fire, all inside `app/rules_engine.py::classify()`:
+
+```mermaid
+flowchart TD
+    A["classify(case)"] --> B{"age_months &lt; 2?"}
+    B -- yes --> B1["INCOMPLETE_ASSESSMENT<br/>AGE_OUT_OF_MODULE_SCOPE<br/>young-infant IMCI chart not built"]
+
+    B -- no --> C{"age &gt;= 60mo, or<br/>age_group ADULT/ELDERLY?"}
+
+    C -- yes --> D["classify_via_dataset(case)<br/>classify_diseases(case.symptom_tokens)"]
+    D --> E{"any disease candidate<br/>matched?"}
+    E -- no --> E1["INCOMPLETE_ASSESSMENT<br/>INSUFFICIENT_SYMPTOM_DATA<br/>missing_fields: [symptom_tokens]<br/>no recognized dataset-vocabulary<br/>symptom token to classify from"]
+    E -- yes --> E2["classified normally<br/>EMERGENCY / SEVERE / MODERATE / MILD"]
+
+    C -- no --> F{"any of the 4 danger signs<br/>confirmed True?"}
+    F -- yes --> F1["EMERGENCY<br/>short-circuits the completeness<br/>check below entirely"]
+    F -- no --> G{"all 4 danger signs explicitly<br/>True or False -- none left None?"}
+    G -- "no" --> G1["INCOMPLETE_ASSESSMENT<br/>DANGER_SIGNS_NOT_FULLY_ASSESSED<br/>missing_fields: whichever of the 4<br/>are still None<br/>IMCI requires all four checked<br/>before assuming none present"]
+    G -- yes --> H["classified normally via<br/>cough + diarrhea axes -&gt;<br/>most_severe_wins"]
+```
+
+**The rule set, precisely:**
+
+| # | Where | Rule | `condition` | `missing_fields` |
+|---|---|---|---|---|
+| 1 | `classify()`, before any routing | `age_months < 2` | `AGE_OUT_OF_MODULE_SCOPE` | (none -- out of scope, not a data gap) |
+| 2 | `classify_via_dataset()` (age >=60mo or explicit adult/elderly) | `classify_diseases(case.symptom_tokens)` returns zero candidates | `INSUFFICIENT_SYMPTOM_DATA` | `["symptom_tokens"]` |
+| 3 | `check_danger_sign_completeness()` (pediatric 2-60mo, only reached if no danger sign is already confirmed `True`) | `DangerSigns.missing_fields()` is non-empty -- i.e. at least one of the 4 general danger signs is `None` | `DANGER_SIGNS_NOT_FULLY_ASSESSED` | the specific `None` field(s) among `not_able_to_drink_or_breastfeed`, `vomits_everything`, `convulsions`, `lethargic_or_unconscious` |
+
+Rule 3 only runs *after* rule "any danger sign `True` -> `EMERGENCY`" has
+already had first say (see `classify_danger_signs()`) -- one confirmed
+danger sign is already actionable and must not be delayed by asking about
+the other three. Completeness only becomes the safety-relevant question
+once the system is about to conclude "no danger signs" and needs to be
+sure that's really true, not just unasked.
+
+**Turning a gap into a question.** Once `missing_fields` is populated,
+`app.agent1_extraction.question_for_incomplete_result(result)` looks up
+the first missing field with a deterministic template (never LLM-generated
+-- the question itself has to be auditable too):
+
+| `missing_fields` entry | Question asked |
+|---|---|
+| `not_able_to_drink_or_breastfeed` | "Is the patient able to drink or breastfeed normally?" |
+| `vomits_everything` | "Does the patient vomit up everything they eat or drink?" |
+| `convulsions` | "Has the patient had any convulsions or fits during this illness?" |
+| `lethargic_or_unconscious` | "Is the patient unusually sleepy, hard to wake, or unconscious?" |
+| `symptom_tokens` | "What is the main problem? Please describe it in a few words (for example: fever, chest pain, vomiting, loose motions)." |
+
+These five are the *only* things the system will ever say are "missing" --
+exam-only signs (breathing rate, chest indrawing, skin pinch) are never
+askable over text/SMS at all, so they're structurally excluded from
+`missing_fields` rather than silently guessed at (see `app/schemas.py`'s
+module docstring).
+
+**Two different places this question gets used, and which one runs
+today:**
+- **Post-classification (what `streamlit_app.py` actually uses):**
+  `classify()` runs once; if the result is `INCOMPLETE_ASSESSMENT`, the
+  Doctor/ASHA tabs show the reasoning trail and
+  `question_for_incomplete_result()`'s question as a hint. There is no
+  automatic loop -- the caregiver's answer has to be added to the message
+  box and "Assess" clicked again.
+- **Pre-classification loop (built, not wired into the frontend):**
+  `app.agent1_extraction.extract_case_with_followup()` asks up to
+  `max_followup_turns` (default 2) questions *before* ever calling
+  `classify()`, gated by the same rules via
+  `app.followup_policy.missing_required()` -- but only for backends with
+  `supports_followup = True` (Ollama, Groq); `RegexBackend` always falls
+  through after one pass. This function exists and is tested
+  (`tests/test_agent1_followup.py`, `tests/test_followup_scripts.py`) but
+  the Streamlit app calls the simpler single-shot `extract_and_classify()`
+  instead, not this loop.
+
 ## What's implemented
 
 - `app/schemas.py` -- shared Pydantic schema between Agent 1 and the Rules

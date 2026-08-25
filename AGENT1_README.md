@@ -164,8 +164,8 @@ points for the paper's field-extraction / disambiguation accuracy results:
 
 The following were built on top of everything above, in a later session,
 extending Agent 1 and the Rules Engine to cover adult/elderly ages via the
-user-supplied disease/symptom CSVs (see `triage-poc/README.md` and
-`triage-poc/ARCHITECTURE.md` for the full picture — this section only
+user-supplied disease/symptom CSVs (see `README.md` and
+`ARCHITECTURE.md` for the full picture — this section only
 covers what changed in files this doc already describes):
 
 - **A second, independent FAISS index** (`app/disambiguation.py`,
@@ -216,6 +216,6 @@ covers what changed in files this doc already describes):
       (Rules Engine gap, not Agent 1 — Step 2 territory; adult/elderly ages
       are now covered via the dataset classifier, but young infant is
       deliberately NOT rerouted there — see `app/rules_engine.py::classify`)
-- [x] Routing Agent — built (`app/routing/`), see `triage-poc/README.md`.
+- [x] Routing Agent — built (`app/routing/`), see `README.md`.
 - [ ] Degradation Controller, Agent 2, facility ingestion pipeline,
       benchmark harness — not started

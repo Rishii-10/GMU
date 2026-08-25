@@ -28,32 +28,37 @@ Raw message
 ## Repository Structure
 
 ```text
-triage-poc/
-├── README.md                  # Project overview and test instructions
-├── requirements.txt          # Python dependencies
-├── app/                      # Core application logic
-│   ├── __init__.py
-│   ├── schemas.py            # Shared Pydantic data models (Agent 1 <-> Rules Engine)
-│   ├── agent1_extraction.py  # Extraction pipeline, backends, follow-up loop
-│   ├── disambiguation.py     # FAISS symptom matching (two independent indexes)
-│   ├── disease_kb.py         # Disease/symptom/precaution knowledge base (CSV-backed)
-│   ├── disease_classifier.py # Naive-Bayes-style disease ranking + severity table
-│   ├── followup_policy.py    # Minimum-viable-info follow-up gate
-│   ├── case_store.py         # SQLite previous-calls/area log (opt-in)
-│   ├── rules_engine.py       # Deterministic pediatric IMNCI + adult-route dispatch
-│   ├── routing/               # Routing Agent (Agent 3)
-│   │   ├── schemas.py         # Facility/RouteInfo/DispatchResult models
-│   │   ├── facility_db.py     # SQLite facility master data + village coords
-│   │   ├── router.py          # 6-step deterministic routing core
-│   │   └── report.py          # LLM doctor-report layer (+ non-LLM fallback)
-│   └── integrations/          # External adapters, offline-mock default
-│       ├── messaging.py       # Twilio (plain REST, no SDK)
-│       ├── translation.py     # Google Translate (plain REST, no SDK)
-│       └── geo.py             # OpenRouteService + Google Maps links
-├── data/                      # disease_symptoms.csv, disease_precautions.csv
-├── tests/                     # Automated tests (one module per concern)
-│   └── fixtures/              # Fabricated facility/village/calibration/script fixtures
-└── .venv/                     # Local Python environment
+./                                  # project root
+├── README.md                       # Project overview and test instructions
+├── ARCHITECTURE.md                 # This file
+├── AGENT1_README.md                # Agent 1 deep-dive
+└── triage-poc/
+    ├── requirements.txt            # Python dependencies
+    ├── streamlit_app.py            # Frontend (caller/ASHA/doctor tabs)
+    ├── app/                        # Core application logic
+    │   ├── __init__.py
+    │   ├── schemas.py              # Shared Pydantic data models (Agent 1 <-> Rules Engine)
+    │   ├── agent1_extraction.py    # Extraction pipeline, backends, follow-up loop
+    │   ├── disambiguation.py       # FAISS symptom matching (two independent indexes)
+    │   ├── disease_kb.py           # Disease/symptom/precaution knowledge base (CSV-backed)
+    │   ├── disease_classifier.py   # Naive-Bayes-style disease ranking + severity table
+    │   ├── followup_policy.py      # Minimum-viable-info follow-up gate
+    │   ├── case_store.py           # SQLite previous-calls/area log (opt-in)
+    │   ├── rules_engine.py         # Deterministic pediatric IMNCI + adult-route dispatch
+    │   ├── routing/                # Routing Agent (Agent 3)
+    │   │   ├── schemas.py          # Facility/RouteInfo/DispatchResult models
+    │   │   ├── facility_db.py      # SQLite facility master data + village coords
+    │   │   ├── demo_facilities.py  # Synthetic facility network for the frontend
+    │   │   ├── router.py           # 6-step deterministic routing core
+    │   │   └── report.py           # LLM doctor-report layer (+ non-LLM fallback)
+    │   └── integrations/           # External adapters, offline-mock default
+    │       ├── messaging.py        # Twilio (plain REST, no SDK)
+    │       ├── translation.py      # Google Translate (plain REST, no SDK)
+    │       └── geo.py              # OpenRouteService + Google Maps links
+    ├── data/                       # disease_symptoms.csv, disease_precautions.csv
+    ├── tests/                      # Automated tests (one module per concern)
+    │   └── fixtures/               # Fabricated facility/village/calibration/script fixtures
+    └── .venv/                      # Local Python environment
 ```
 
 ---
