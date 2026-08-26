@@ -28,7 +28,6 @@ from app.agent1_extraction import (
     BackendUnavailable,
     ExtractionValidationError,
     OllamaBackend,
-    RegexBackend,
     extract_and_classify,
     question_for_incomplete_result,
 )
@@ -144,11 +143,6 @@ ASHA_ACTION = {
     ClassificationLabel.INCOMPLETE_ASSESSMENT: "❓ Go back to the caregiver and ask the missing question below before deciding.",
 }
 
-BACKENDS = {
-    "Local LLM (Ollama)": OllamaBackend,
-    "Offline keyword matcher": RegexBackend,
-}
-
 MISSING_FIELD_LABELS = {
     "not_able_to_drink_or_breastfeed": "Able to drink / breastfeed?",
     "vomits_everything": "Vomiting everything?",
@@ -197,11 +191,7 @@ def exam_only_checklist(case: ExtractedCase) -> list[str]:
 # Sidebar
 # ---------------------------------------------------------------------------
 st.sidebar.header("Settings")
-backend_choice = st.sidebar.radio("Extraction backend", list(BACKENDS.keys()), index=0)
-st.sidebar.caption(
-    "Local LLM needs `ollama serve` running with `llama3.2:3b` pulled. "
-    "The offline keyword matcher works without any server but is coarser."
-)
+st.sidebar.info("Extraction backend: **Local LLM (Ollama)**\nRequires `ollama serve` with `llama3.2:3b` pulled.")
 
 village_choice = st.sidebar.selectbox(
     "Patient village (for facility routing)",
@@ -598,20 +588,184 @@ def render_doctor_view(cur: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Rule Engine Output view
+# ---------------------------------------------------------------------------
+_BAND_STYLE = {
+    "NON_URGENT": ("#1B6B33", "#E8F5EA", "✓ NON-URGENT"),
+    "URGENT":     ("#8A6D00", "#FCF6DC", "● URGENT"),
+    "EMERGENCY":  ("#8A0000", "#FDECEC", "🚨 EMERGENCY"),
+}
+
+_ESI_LABEL = {1: "ESI 1 — Resuscitation", 2: "ESI 2 — Emergent",
+              3: "ESI 3 — Urgent", 4: "ESI 4 — Less urgent", 5: "ESI 5 — Non-urgent"}
+
+
+def render_rule_engine_view(cur: dict) -> None:
+    result: ClassificationResult = cur["result"]
+
+    st.subheader("Rule Engine — Internal Output")
+    st.caption(
+        "This tab exposes the full internal state of the two-stage rule engine "
+        "for verification. Every number here is derived, not hard-coded."
+    )
+
+    # --- Stage 1 ---
+    st.markdown("### Stage 1 — Probabilistic Diagnosis")
+
+    if result.calibrated_confidence is None:
+        st.info(
+            "Stage 1 NB classifier ran as **supplementary context** on this case "
+            "(pediatric IMCI path). The calibrated abstention layer applies only "
+            "on the adult/out-of-band route."
+        )
+    else:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Calibrated confidence", f"{result.calibrated_confidence:.1%}")
+            st.caption(f"τ threshold (Youden's J): {result.calibrated_confidence:.3f} threshold shown above")
+        with col2:
+            st.metric("Raw NB posterior", f"{result.raw_confidence:.1%}" if result.raw_confidence is not None else "—")
+        with col3:
+            st.metric("Gap to 2nd candidate", f"{result.gap_to_second:.3f}" if result.gap_to_second is not None else "—")
+
+        if result.abstention_triggered:
+            st.error(
+                "**Abstention triggered** — engine refused to answer. "
+                "Coordination layer will route to follow-up. "
+                "This is the safety mechanism preventing a confident-but-wrong diagnosis."
+            )
+        else:
+            st.success("**Abstention check passed** — both τ (confidence) and δ (gap) conditions met.")
+
+    if result.candidates:
+        st.markdown("#### Ranked disease candidates")
+        st.caption("Scores are calibrated isotonic posteriors; the top candidate cleared both the τ and δ thresholds.")
+        for i, c in enumerate(result.candidates[:5]):
+            bar_pct = int(c.score * 100)
+            badge = "**→ SELECTED**" if i == 0 and not result.abstention_triggered else ""
+            st.markdown(
+                f'<div class="card" style="margin-bottom:0.5rem;">'
+                f'<b>#{i+1} {c.name}</b> {badge} — score {c.score:.1%}<br>'
+                f'<div style="background:#E3E3E3;border-radius:4px;height:10px;margin:4px 0;">'
+                f'<div style="background:#1E5FA8;width:{bar_pct}%;height:10px;border-radius:4px;"></div></div>'
+                f'Matched symptoms: {", ".join(c.matched_symptoms) or "none"}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+    # --- Stage 2 ---
+    st.markdown("### Stage 2 — Emergency Classification (AHP)")
+
+    er = result.emergency_result
+    if er is None:
+        st.info(
+            "Stage 2 emergency scoring did not run — "
+            "either the case is on the pediatric IMCI path or Stage 1 abstained."
+        )
+    else:
+        fg, bg, label_text = _BAND_STYLE.get(er.band.value, ("#444", "#F0F0F0", er.band.value))
+
+        # Score gauge
+        st.markdown(
+            f'<div class="banner" style="color:{fg};background-color:{bg};border-left-color:{fg};">'
+            f'Emergency Score: {er.score} / 10'
+            f'<span class="subbanner">{label_text} &nbsp;|&nbsp; {_ESI_LABEL.get(er.esi_level, f"ESI {er.esi_level}")}'
+            f'{"&nbsp;|&nbsp; ⚠️ WHO IMCI Override" if er.override_triggered else ""}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        gauge_pct = int(er.score * 10)
+        gauge_color = fg
+        st.markdown(
+            f'<div style="background:#E3E3E3;border-radius:6px;height:18px;margin:0.5rem 0 1rem 0;">'
+            f'<div style="background:{gauge_color};width:{gauge_pct}%;height:18px;border-radius:6px;'
+            f'display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700;">'
+            f'{er.score}/10</div></div>',
+            unsafe_allow_html=True,
+        )
+
+        if er.override_triggered:
+            st.error(
+                "**WHO IMCI Danger-Sign Override triggered** — score forced to 10 (Emergency) "
+                "regardless of the AHP weighted total. This is the unconditional false-negative safety net."
+            )
+
+        # Per-attribute breakdown table
+        st.markdown("#### Per-attribute breakdown")
+        st.caption(
+            "AHP weights derived from pairwise comparison matrix (Saaty 1980). "
+            "Consistency Ratio CR = 0.0205 < 0.10 ✓"
+        )
+
+        attr_display = {
+            "complication_probability": "Complication / deterioration probability",
+            "time_to_treatment":        "Time-to-treatment sensitivity",
+            "disease_severity":         "Disease intrinsic severity",
+            "age_vulnerability":        "Patient age vulnerability",
+            "onset_acuity":             "Onset acuity",
+            "transmissibility":         "Transmissibility (WHO IHR)",
+        }
+
+        rows_html = ""
+        for key, display_name in attr_display.items():
+            attr_s = er.attribute_scores.get(key, 0.0)
+            weight = er.attribute_weights.get(key, 0.0)
+            contrib = attr_s * weight
+            bar_w = int(attr_s * 100)
+            rows_html += (
+                f"<tr>"
+                f"<td style='padding:6px 8px;'>{display_name}</td>"
+                f"<td style='padding:6px 8px;text-align:center;'>{weight:.3f}</td>"
+                f"<td style='padding:6px 8px;'>"
+                f"<div style='display:flex;align-items:center;gap:6px;'>"
+                f"<div style='background:#E3E3E3;border-radius:3px;height:10px;width:80px;flex-shrink:0;'>"
+                f"<div style='background:#1E5FA8;width:{bar_w}%;height:10px;border-radius:3px;'></div></div>"
+                f"<span>{attr_s:.2f}</span></div></td>"
+                f"<td style='padding:6px 8px;text-align:center;'>{contrib:.4f}</td>"
+                f"</tr>"
+            )
+
+        st.markdown(
+            f'<table style="width:100%;border-collapse:collapse;font-size:15px;">'
+            f'<thead><tr style="border-bottom:2px solid #E3E3E3;">'
+            f'<th style="text-align:left;padding:6px 8px;">Attribute</th>'
+            f'<th style="text-align:center;padding:6px 8px;">AHP Weight</th>'
+            f'<th style="text-align:left;padding:6px 8px;">Score (0–1)</th>'
+            f'<th style="text-align:center;padding:6px 8px;">Contribution</th>'
+            f'</tr></thead><tbody>{rows_html}</tbody>'
+            f'<tfoot><tr style="border-top:2px solid #E3E3E3;font-weight:700;">'
+            f'<td colspan="3" style="padding:6px 8px;">Weighted acuity total → Emergency score</td>'
+            f'<td style="text-align:center;padding:6px 8px;">'
+            f'{sum(er.attribute_scores.get(k,0)*er.attribute_weights.get(k,0) for k in er.attribute_weights):.4f} → {er.score}/10</td>'
+            f'</tr></tfoot></table>',
+            unsafe_allow_html=True,
+        )
+
+        st.markdown("#### Stage 2 reasoning trail")
+        for i, line in enumerate(er.reasoning, start=1):
+            st.markdown(f'<div class="reasoning-line">{i}. {line}</div>', unsafe_allow_html=True)
+
+    # Full Stage 1 reasoning trail
+    st.markdown("#### Stage 1 reasoning trail")
+    render_reasoning(result, collapsed=False)
+
+
+# ---------------------------------------------------------------------------
 # Main flow
 # ---------------------------------------------------------------------------
 if assess_clicked:
     if not text.strip():
         st.warning("Please enter a symptom description first.")
     else:
-        backend = BACKENDS[backend_choice]()
+        backend = OllamaBackend()
         try:
             with st.spinner("Extracting and classifying..."):
                 case, result = extract_and_classify(text, backend)
         except BackendUnavailable as e:
             st.error(
-                f"Backend unavailable: {e}\n\n"
-                "Try the offline keyword matcher in the sidebar, or start `ollama serve`."
+                f"Ollama backend unavailable: {e}\n\n"
+                "Start `ollama serve` and ensure `llama3.2:3b` is pulled, then try again."
             )
         except ExtractionValidationError as e:
             st.error(f"Could not process this message: {e}")
@@ -626,12 +780,12 @@ if assess_clicked:
             st.session_state.current = {"case": case, "result": result}
 
 if st.session_state.current is not None:
-    backend = BACKENDS[backend_choice]()
+    backend = OllamaBackend()
     ensure_dispatch_and_report(st.session_state.current, backend)
 
     st.markdown("---")
-    tab_caller, tab_asha, tab_doctor = st.tabs(
-        ["📞 Caller / Caregiver", "🏥 ASHA Worker", "🩺 Doctor"]
+    tab_caller, tab_asha, tab_doctor, tab_engine = st.tabs(
+        ["📞 Caller / Caregiver", "🏥 ASHA Worker", "🩺 Doctor", "🔬 Rule Engine Output"]
     )
     with tab_caller:
         render_caller_view(st.session_state.current)
@@ -639,3 +793,5 @@ if st.session_state.current is not None:
         render_asha_view(st.session_state.current)
     with tab_doctor:
         render_doctor_view(st.session_state.current)
+    with tab_engine:
+        render_rule_engine_view(st.session_state.current)

@@ -34,6 +34,7 @@ from __future__ import annotations
 from typing import Optional
 
 from app.disease_classifier import get_default_classifier, severity_for_disease
+from app.emergency_scorer import score_emergency
 from app.schemas import (
     AgeGroup,
     ClassificationLabel,
@@ -266,71 +267,85 @@ def _attach_dataset_context(result: ClassificationResult, case: ExtractedCase) -
 
 
 def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
-    """Primary classification path for adult/elderly/out-of-band-age cases
-    (see classify()'s routing below): the IMNCI pediatric chart does not
-    apply, so the dataset-driven disease classifier (app.disease_classifier)
-    becomes the primary signal instead of a supplement.
+    """Primary classification path for adult/elderly/out-of-band-age cases.
 
-    Deterministic given case.symptom_tokens (already-normalized dataset
-    vocabulary from FAISS disambiguation) -- no LLM call happens here. Maps
-    the top-ranked disease candidate to a severity label via
-    app.disease_classifier.severity_for_disease(), which reads
-    data/disease_severity.csv (an editable data file, not a hardcoded
-    table -- see app/disease_kb.py's module docstring for why), which is
-    a distinct ranking axis from the probability score: probability decides
-    WHICH disease is most likely given the symptoms; the severity file
-    decides what triage tier that specific disease implies. They compose,
-    they don't compete -- mirrors most_severe_wins' role on the pediatric
-    side without reusing it directly (there is no multi-axis conflict here;
-    there is one disease-probability ranking with one severity lookup).
+    Implements the two-stage rule engine (Rule engine final.md):
 
-    Scope note: this path does NOT consult case.danger_signs or the
-    completeness gate above -- DangerSigns' wording ("breastfeed") and its
-    all-four-must-be-assessed gate are WHO IMCI pediatric constructs, not
-    something this adult/elderly route inherits. This is a known scope
-    boundary (flagged, not silently ignored): a future iteration could add
-    an age-appropriate adult danger-sign checklist, but that is a real
-    design decision, not assumed here.
+    Stage 1 — Probabilistic diagnosis with calibration + abstention:
+      - Bernoulli Naive Bayes posteriors over 41 diseases.
+      - Isotonic calibration (Niculescu-Mizil & Caruana, ICML 2005).
+      - Reject-option abstention: answer only when calibrated_confidence >= τ
+        (Youden's J threshold) AND gap_to_second >= δ (risk-coverage threshold).
+        Chow (1970); Geifman & El-Yaniv (2017).
+      - If abstain → INCOMPLETE_ASSESSMENT; coordination layer triggers follow-up.
 
-    Returns INCOMPLETE_ASSESSMENT if the case has no recognized dataset
-    symptom tokens at all -- an honest "we don't have enough to classify,"
-    never a forced guess at a disease with zero evidence.
+    Stage 2 — AHP-weighted emergency scoring (only when Stage 1 answers):
+      - Six-attribute acuity score (Saaty 1980 AHP, CR=0.0205).
+      - WHO IMCI danger-sign hard override.
+      - ESI-aligned band mapping (AHRQ ESI Handbook v5).
+
+    No LLM call happens in this function.
     """
-    candidates = get_default_classifier().classify_diseases(case.symptom_tokens)
-    if not candidates:
+    clf = get_default_classifier()
+    diag = clf.classify_with_abstention(case.symptom_tokens)
+
+    # --- Stage 1: abstention path ---
+    if diag.abstain:
+        missing = ["symptom_tokens"] if not diag.candidates else []
         return ClassificationResult(
             label=ClassificationLabel.INCOMPLETE_ASSESSMENT,
-            condition="INSUFFICIENT_SYMPTOM_DATA",
+            condition="UNCERTAIN_DIAGNOSIS",
             reasoning=[
-                "age is outside the pediatric IMNCI band (2-60mo); routed to "
-                "the dataset-driven disease classifier, but the case has no "
-                "recognized disease-CSV-vocabulary symptom tokens to classify "
-                "from yet."
+                "Stage 1 reject-option fired — engine abstains rather than guessing.",
+                f"Reason: {diag.abstain_reason}",
+                f"Thresholds used: τ={diag.tau:.3f} (Youden's J), δ={diag.delta:.3f} (risk-coverage).",
+                "Abstention is a safety property: the coordination layer will "
+                "trigger a follow-up question to disambiguate before re-classifying.",
             ],
-            missing_fields=["symptom_tokens"],
+            missing_fields=missing,
+            abstention_triggered=True,
+            calibrated_confidence=diag.calibrated_confidence,
+            raw_confidence=diag.raw_confidence,
+            gap_to_second=diag.gap_to_second,
+            candidates=diag.candidates[:5] if diag.candidates else [],
             case_id=case.case_id,
         )
 
-    top = candidates[0]
+    # --- Stage 1: confident diagnosis ---
+    top = diag.candidates[0]
     label = severity_for_disease(top.name)
+
     reasoning = [
-        "age is outside the pediatric IMNCI band (2-60mo); routed to the "
-        "dataset-driven disease classifier as the primary path.",
-        f"top candidate disease: {top.name!r} (posterior score={top.score}), "
-        f"matched symptoms: {top.matched_symptoms}",
-        f"disease->severity mapping: {top.name!r} -> {label.value} "
-        "(data/disease_severity.csv via app.disease_classifier.severity_for_disease)",
+        "Stage 1 — dataset-driven disease classifier (adult/out-of-band path).",
+        f"Top diagnosis: {top.name!r}  calibrated_confidence={diag.calibrated_confidence:.3f}  "
+        f"raw_posterior={diag.raw_confidence:.3f}  gap_to_second={diag.gap_to_second:.3f}.",
+        f"Abstention thresholds: τ={diag.tau:.3f} (Youden's J), δ={diag.delta:.3f} (risk-coverage) — both passed ✓.",
+        f"Matched symptoms: {top.matched_symptoms}.",
+        f"Severity lookup (disease_severity.csv): {top.name!r} → {label.value}.",
     ]
-    if len(candidates) > 1:
-        others = [f"{c.name} (score={c.score})" for c in candidates[1:]]
-        reasoning.append(f"other candidates considered: {others}")
+    if len(diag.candidates) > 1:
+        others = [f"{c.name} ({c.score:.3f})" for c in diag.candidates[1:4]]
+        reasoning.append(f"Other candidates considered: {others}.")
+
+    # --- Stage 2: AHP emergency scoring ---
+    emergency = score_emergency(case, top.name, label)
+    reasoning.append(
+        f"Stage 2 — AHP emergency score: {emergency.score}/10  "
+        f"band: {emergency.band.value}  ESI: {emergency.esi_level}  "
+        f"override: {emergency.override_triggered}."
+    )
 
     return ClassificationResult(
         label=label,
         condition=top.name,
         reasoning=reasoning,
-        candidates=candidates,
+        candidates=diag.candidates,
         probable_disease=top.name,
+        calibrated_confidence=diag.calibrated_confidence,
+        raw_confidence=diag.raw_confidence,
+        gap_to_second=diag.gap_to_second,
+        abstention_triggered=False,
+        emergency_result=emergency,
         case_id=case.case_id,
     )
 

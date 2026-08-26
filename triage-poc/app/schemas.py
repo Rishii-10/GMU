@@ -224,6 +224,29 @@ SEVERITY_RANK: dict[ClassificationLabel, int] = {
 }
 
 
+class EmergencyBand(str, Enum):
+    """Three-band emergency classification aligned to ESI levels."""
+    NON_URGENT = "NON_URGENT"   # score 1-3 → ESI 4-5
+    URGENT = "URGENT"           # score 4-7 → ESI 3
+    EMERGENCY = "EMERGENCY"     # score 8-10 → ESI 1-2
+
+
+class EmergencyResult(BaseModel):
+    """Stage 2 output: AHP-weighted six-attribute emergency classification.
+
+    All attribute scores are 0-1 normalised. Weights are the AHP eigenvector
+    derived from the pairwise comparison matrix documented in
+    app/emergency_scorer.py (CR = 0.0205, well within Saaty's 0.10 limit).
+    """
+    score: int                           # 1-10 composite emergency score
+    band: EmergencyBand                  # NON_URGENT / URGENT / EMERGENCY
+    esi_level: int                       # 1-5 ESI-aligned level
+    override_triggered: bool             # True = WHO IMCI danger sign forced Emergency
+    attribute_scores: dict[str, float]   # per-attribute 0-1 scores (audit trail)
+    attribute_weights: dict[str, float]  # AHP weights used (audit trail)
+    reasoning: list[str]                 # human-readable decision trail
+
+
 class DiseaseCandidate(BaseModel):
     """One ranked candidate from app.disease_classifier.classify_diseases().
 
@@ -264,4 +287,30 @@ class ClassificationResult(BaseModel):
             "None when the classifier didn't run or found no candidate "
             "above its own confidence floor."
         ),
+    )
+
+    # Stage 1 calibration fields (populated on the adult/dataset path only)
+    calibrated_confidence: Optional[float] = Field(
+        default=None,
+        description="Isotonic-calibrated posterior P(top disease is correct). "
+                    "None on the pediatric IMCI path where NB is supplementary.",
+    )
+    raw_confidence: Optional[float] = Field(
+        default=None,
+        description="Raw NB posterior for top disease before calibration.",
+    )
+    gap_to_second: Optional[float] = Field(
+        default=None,
+        description="Difference between top and second calibrated posteriors.",
+    )
+    abstention_triggered: bool = Field(
+        default=False,
+        description="True when the reject-option check fired and forced INCOMPLETE_ASSESSMENT.",
+    )
+
+    # Stage 2 emergency scoring (populated when a confident diagnosis is reached)
+    emergency_result: Optional[EmergencyResult] = Field(
+        default=None,
+        description="AHP-weighted Stage 2 emergency classification. None when "
+                    "diagnosis was absent or abstained.",
     )
