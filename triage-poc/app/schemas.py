@@ -50,6 +50,15 @@ class AgeGroup(str, Enum):
     This is NOT sufficient on its own for IMCI classification, which splits
     at exactly 2 months (young infant vs. child) and at exactly 12 months
     (fast-breathing cutoff). See `age_months` below.
+
+    `ExtractedCase.age_group` is Optional and defaults to None ("not
+    stated") -- the same honest-absence pattern as `age_months`. UNKNOWN
+    stays a valid member for a caller that wants to say "explicitly asked,
+    genuinely unknown" as distinct from "never asked" (None), but nothing
+    in the pipeline coerces an absent/unrecognized value to UNKNOWN any
+    more: an unresolved age is None, and rules_engine.classify() routes
+    that to INCOMPLETE_ASSESSMENT / AGE_UNKNOWN_CANNOT_ROUTE rather than
+    silently assuming the pediatric age band.
     """
 
     INFANT = "infant"
@@ -151,7 +160,7 @@ class ExtractedCase(BaseModel):
     symptom: Optional[str] = None
     duration: Optional[str] = None
     severity: Severity = Severity.UNKNOWN
-    age_group: AgeGroup = AgeGroup.UNKNOWN
+    age_group: Optional[AgeGroup] = None
     age_months: Optional[int] = Field(
         default=None,
         description=(

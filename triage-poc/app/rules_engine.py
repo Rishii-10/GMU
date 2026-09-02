@@ -388,11 +388,17 @@ def classify(case: ExtractedCase) -> ClassificationResult:
         conditions), not neonatal presentations -- and this check runs
         first in classify(), before the dataset-routing check even
         executes, so a young infant can never reach it.
+      - age_months is None AND age_group is None or UNKNOWN (age fully
+        unresolved): returns INCOMPLETE_ASSESSMENT with
+        condition="AGE_UNKNOWN_CANNOT_ROUTE". Every route depends on age;
+        with none available the engine will not assume one. Distinct from
+        both YOUNG_INFANT_NO_VALIDATED_RULESET (we have an age, no rules)
+        and AGE_OUT_OF_MODULE_SCOPE. Runs before any route below.
       - age_months >= 60, OR age_months is None with age_group explicitly
         ADULT/ELDERLY: routed to classify_via_dataset() as the PRIMARY path
         (see that function's docstring for what "primary" means here).
-      - Otherwise (age_months in [2, 60), or age unknown entirely with no
-        adult/elderly signal): the existing pediatric IMNCI path, with
+      - Otherwise (age_months in [2, 60), or age_months is None with
+        age_group INFANT/CHILD): the existing pediatric IMNCI path, with
         dataset-classifier candidates attached as supplementary context
         (_attach_dataset_context) -- never overriding the IMNCI label.
     """
@@ -424,6 +430,37 @@ def classify(case: ExtractedCase) -> ClassificationResult:
                 "adult logic, the exact failure mode this branch exists to "
                 "avoid.",
             ],
+            case_id=case.case_id,
+        )
+
+    # Age fully unresolved: no exact age AND no usable lay age band. This is
+    # the same "don't conflate states" principle as the young-infant branch
+    # above and classify_via_dataset()'s INSUFFICIENT_SYMPTOM_DATA -- an
+    # unknown age is a missing INPUT, not a licence to assume the pediatric
+    # band. Falling through to the pediatric IMNCI path here (the old
+    # behavior, when age_group defaulted to UNKNOWN) silently applied
+    # child-2mo-to-5yr fast-breathing/dehydration logic to a patient who
+    # could be an 80-year-old. Kept as its own condition string so the
+    # coordination layer can ask an age-clarifying follow-up (see
+    # app/followup_policy.py) rather than treating it like an unassessed
+    # danger sign. Runs before every route below -- an unrouteable case
+    # must never reach a classifier.
+    age_unresolved = case.age_months is None and case.age_group in (None, AgeGroup.UNKNOWN)
+    if age_unresolved:
+        return ClassificationResult(
+            label=ClassificationLabel.INCOMPLETE_ASSESSMENT,
+            condition="AGE_UNKNOWN_CANNOT_ROUTE",
+            reasoning=[
+                "age is fully unresolved: age_months is None and age_group is "
+                f"{case.age_group.value if case.age_group is not None else 'None'} "
+                "(no usable lay age band).",
+                "IMNCI vs. adult/dataset routing both depend on age; with none "
+                "available the engine cannot pick a route without assuming one. "
+                "Returning INCOMPLETE_ASSESSMENT / AGE_UNKNOWN_CANNOT_ROUTE so an "
+                "age-clarifying follow-up can be asked, rather than silently "
+                "defaulting to the pediatric age band.",
+            ],
+            missing_fields=["age_months"],
             case_id=case.case_id,
         )
 
