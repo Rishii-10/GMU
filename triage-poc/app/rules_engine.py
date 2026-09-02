@@ -297,10 +297,22 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
 
     # --- Stage 1: abstention path ---
     if diag.abstain:
-        missing = ["symptom_tokens"] if not diag.candidates else []
+        # Two distinct failure modes, deliberately kept apart (same
+        # "don't conflate states" principle as the young-infant escalation
+        # branch above): no recognized symptom tokens at all is a missing-
+        # INPUT problem the caller can fix by asking a follow-up question
+        # (INSUFFICIENT_SYMPTOM_DATA, with a real `missing_fields` entry to
+        # act on); a low calibrated confidence or too-close top-two gap
+        # despite having real symptom evidence is a genuine diagnostic-
+        # uncertainty problem, not a missing-input one (UNCERTAIN_DIAGNOSIS,
+        # no missing_fields -- there's nothing further to *ask* that would
+        # mechanically resolve it).
+        no_symptom_evidence = not diag.candidates
+        missing = ["symptom_tokens"] if no_symptom_evidence else []
+        condition = "INSUFFICIENT_SYMPTOM_DATA" if no_symptom_evidence else "UNCERTAIN_DIAGNOSIS"
         return ClassificationResult(
             label=ClassificationLabel.INCOMPLETE_ASSESSMENT,
-            condition="UNCERTAIN_DIAGNOSIS",
+            condition=condition,
             reasoning=[
                 "Stage 1 reject-option fired — engine abstains rather than guessing.",
                 f"Reason: {diag.abstain_reason}",
