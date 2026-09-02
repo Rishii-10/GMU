@@ -1,10 +1,16 @@
 """
 IMNCI Rules Engine -- deterministic, auditable, no LLM anywhere in this file.
 
-Two routes, selected by age (see classify()):
+Three routes, selected by age (see classify()):
+  - Young infant (age_months < 2): no validated WHO IMCI young-infant
+    ruleset is implemented yet -- escalated to human review
+    (INCOMPLETE_ASSESSMENT / condition="YOUNG_INFANT_NO_VALIDATED_RULESET")
+    rather than guessed at or misapplied with child/adult logic. Never
+    routed to the dataset classifier under any circumstance -- see the
+    branch itself, at the top of classify(), for why.
   - Pediatric IMNCI (age 2mo-5yr): the original fixed clinical rules below.
-    Young infant 0-<2mo and malnutrition/anaemia charts are explicitly NOT
-    yet implemented -- see Step 2 of the build order.
+    Malnutrition/anaemia charts are explicitly NOT yet implemented -- see
+    Step 2 of the build order.
   - Adult/elderly/out-of-band (age >=60mo, or age_group ADULT/ELDERLY with
     no exact age): routed to app.disease_classifier.classify_via_dataset(),
     the dataset-driven disease classifier built from the user-supplied
@@ -357,11 +363,19 @@ def classify(case: ExtractedCase) -> ClassificationResult:
     Agent 1's pipeline should call.
 
     Age routing:
-      - age_months < 2 (young infant): IMNCI's young-infant chart is not
-        yet built (Step 2 territory) -- returns INCOMPLETE_ASSESSMENT
-        unchanged from prior behavior; NOT rerouted to the dataset
-        classifier, since that path is validated against adult-disease
-        data, not neonatal presentations.
+      - age_months < 2 (young infant): no validated WHO IMCI young-infant
+        ruleset is implemented (Step 2 territory) -- returns
+        INCOMPLETE_ASSESSMENT with condition="YOUNG_INFANT_NO_VALIDATED_RULESET",
+        deliberately distinct from the pediatric/adult scope guard's
+        "AGE_OUT_OF_MODULE_SCOPE" (see ClassificationLabel.INCOMPLETE_ASSESSMENT's
+        docstring comment in app/schemas.py for why the two are kept
+        separate). Honestly escalates to human review rather than guessing
+        or misapplying adult/child logic. NOT rerouted to the dataset
+        classifier under any circumstance: that path is validated against
+        adult-disease data (data/disease_symptoms.csv has zero neonatal
+        conditions), not neonatal presentations -- and this check runs
+        first in classify(), before the dataset-routing check even
+        executes, so a young infant can never reach it.
       - age_months >= 60, OR age_months is None with age_group explicitly
         ADULT/ELDERLY: routed to classify_via_dataset() as the PRIMARY path
         (see that function's docstring for what "primary" means here).
@@ -371,14 +385,32 @@ def classify(case: ExtractedCase) -> ClassificationResult:
         (_attach_dataset_context) -- never overriding the IMNCI label.
     """
 
+    # Young infant (<2mo): a real, tracked clinical gap, not a generic
+    # out-of-scope input -- kept as a DISTINCT condition string from
+    # AGE_OUT_OF_MODULE_SCOPE below (see ClassificationLabel.INCOMPLETE_ASSESSMENT's
+    # docstring comment in app/schemas.py) so downstream handling (e.g.
+    # routing to a facility with neonatal capability) can tell "we have no
+    # inputs" apart from "we have inputs but no validated rules exist yet".
+    # This check runs FIRST, before `routes_to_dataset` below is even
+    # computed, so a young infant can never reach classify_via_dataset() --
+    # that path is validated against data/disease_symptoms.csv, an
+    # adult-disease dataset with zero neonatal conditions, and applying it
+    # to a young infant would be exactly the "misapplying adult logic"
+    # failure mode this branch exists to prevent.
     if case.age_months is not None and case.age_months < MODULE_AGE_MIN_MONTHS:
         return ClassificationResult(
             label=ClassificationLabel.INCOMPLETE_ASSESSMENT,
-            condition="AGE_OUT_OF_MODULE_SCOPE",
+            condition="YOUNG_INFANT_NO_VALIDATED_RULESET",
             reasoning=[
-                f"age_months={case.age_months} is below the 2-month lower bound "
-                "this rules engine implements (young infant <2mo chart is not "
-                "yet built -- see Step 2 of the build order)."
+                f"young infant (age_months={case.age_months}), no validated WHO "
+                "IMCI young-infant ruleset implemented -- escalating to human "
+                "review rather than guessing or misapplying adult/child logic.",
+                "Deliberately NOT routed to classify_via_dataset(): that path "
+                "is validated against the adult-disease CSV "
+                "(data/disease_symptoms.csv), which has zero neonatal "
+                "conditions -- routing a young infant there would misapply "
+                "adult logic, the exact failure mode this branch exists to "
+                "avoid.",
             ],
             case_id=case.case_id,
         )

@@ -205,6 +205,15 @@ class ClassificationLabel(str, Enum):
     depends on this being ranked worst-to-best.
     """
 
+    # `condition` on ClassificationResult distinguishes WHY assessment is
+    # incomplete (missing danger-sign fields, out-of-module age, an
+    # abstained dataset diagnosis, or -- see app.rules_engine.classify()'s
+    # young-infant branch -- a real clinical gap awaiting a validated
+    # ruleset, condition="YOUNG_INFANT_NO_VALIDATED_RULESET", deliberately
+    # a distinct string from the generic out-of-scope guard's
+    # "AGE_OUT_OF_MODULE_SCOPE": one is "we don't have inputs", the other is
+    # "we have inputs but no validated rules exist yet" -- different
+    # failure modes, kept distinct rather than conflated into one label.
     INCOMPLETE_ASSESSMENT = "INCOMPLETE_ASSESSMENT"
     EMERGENCY = "EMERGENCY"  # danger sign present -> refer urgently
     SEVERE = "SEVERE"  # e.g. severe pneumonia, severe dehydration

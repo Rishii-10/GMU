@@ -201,11 +201,15 @@ def test_confirmed_danger_sign_short_circuits_even_if_others_unassessed():
     assert result.condition == "GENERAL_DANGER_SIGN"
 
 
-def test_age_out_of_module_scope_flagged():
-    case = make_case(age_months=1, danger_signs=ALL_DS_NEGATIVE)  # young infant, not yet implemented
+def test_young_infant_escalated_not_generic_out_of_scope():
+    # Young infant (<2mo) is a real, tracked clinical gap (no validated WHO
+    # IMCI young-infant ruleset yet) -- distinct from a generic out-of-scope
+    # age, hence its own condition string rather than AGE_OUT_OF_MODULE_SCOPE.
+    case = make_case(age_months=1, danger_signs=ALL_DS_NEGATIVE)
     result = classify(case)
     assert result.label == ClassificationLabel.INCOMPLETE_ASSESSMENT
-    assert result.condition == "AGE_OUT_OF_MODULE_SCOPE"
+    assert result.condition == "YOUNG_INFANT_NO_VALIDATED_RULESET"
+    assert result.condition != "AGE_OUT_OF_MODULE_SCOPE"
 
 
 def test_no_cough_no_diarrhea_no_danger_signs_defaults_mild_with_caveat():
