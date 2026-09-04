@@ -64,9 +64,28 @@ MIN_CANDIDATE_SCORE = 0.01
 # Laplace smoothing constant (add-1). See module docstring.
 _LAPLACE_ALPHA = 1.0
 
-# Fraction of training rows used as held-out calibration set.
-# Fixed random seed 42 for reproducibility.
-_CALIBRATION_HOLDOUT_FRACTION = 0.20
+# Calibration/threshold derivation: stratified k-fold cross-validation over
+# UNIQUE (disease, symptom-set) profiles, not raw duplicated CSV rows --
+# see _fit_calibration_and_thresholds()'s docstring for why a row-level
+# split leaks (data/disease_symptoms.csv repeats the same profile up to
+# 90x) and why that leakage, not a hand-pickable constant, was the actual
+# bug behind an earlier τ=1.0 threshold collapse.
+#
+# k=5 chosen because: every one of the 41 diseases has between 5 and 10
+# unique profiles (checked directly against the CSV -- min=5 for Fungal
+# infection, max=10 for Hepatitis D, mean=7.4, 304 unique profiles total).
+# k=5 is the largest fold count where even the sparsest disease (5
+# profiles) still contributes at least one profile to every fold's
+# TRAINING side (5 profiles / 5 folds = exactly 1 held out per fold, 4
+# retained) -- no fold ever trains on zero rows for any disease. It also
+# keeps each fold's holdout share close to the prior single-split's 20%,
+# the ratio _TARGET_SELECTIVE_ERROR/_MIN_COVERAGE below were already
+# chosen relative to. k=10 was considered and rejected: with a minimum of
+# 5 profiles per disease, most (disease, fold) combinations would hold out
+# zero profiles for that disease, unevenly thinning the aggregated
+# evaluation sample without adding real held-out diversity given how few
+# unique profiles exist in total (304).
+_CALIBRATION_N_FOLDS = 5
 _CALIBRATION_SEED = 42
 
 # Risk-coverage operating point: target selective error ≤ 3 % (30 in 1000).
@@ -75,6 +94,112 @@ _CALIBRATION_SEED = 42
 # from held-out calibration data; they are not hand-picked.
 _TARGET_SELECTIVE_ERROR = 0.03
 _MIN_COVERAGE = 0.60
+
+
+def _fit_naive_bayes(
+    rows_by_disease: dict[str, list[list[str]]],
+    vocabulary: list[str],
+) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+    """Estimate log-priors and Laplace-smoothed log-likelihoods from a set
+    of rows (row-level, i.e. duplication-weighted -- see module docstring
+    for why the PRODUCTION model deliberately keeps this weighting).
+
+    Factored out of DiseaseClassifier.__init__() so the exact same
+    estimation procedure can be re-run, scoped to only one fold's training
+    rows, during calibration fitting (_fit_calibration_and_thresholds())
+    without duplicating the math or letting the two drift out of sync.
+
+    `total_rows` is derived internally from `rows_by_disease` (not passed
+    in) so a caller scoping this to a training-fold subset can never
+    accidentally pass a mismatched total.
+
+    A disease with zero rows in `rows_by_disease` (not present as a key,
+    or present with an empty list) is silently excluded from the returned
+    tables rather than raising on log(0) -- defensive: given this
+    project's k=5 fold count and the minimum 5-profile-per-disease floor
+    (see _CALIBRATION_N_FOLDS's comment), no disease should ever actually
+    lose all its rows in one fold, but a data change that violated that
+    assumption should degrade to "this disease can't win this fold" rather
+    than crash classifier construction.
+    """
+    log_prior: dict[str, float] = {}
+    log_likelihood: dict[str, dict[str, float]] = {}
+    vocab_size = len(vocabulary)
+    total_rows = sum(len(rows) for rows in rows_by_disease.values())
+    for disease, rows in rows_by_disease.items():
+        n_rows = len(rows)
+        if n_rows == 0 or total_rows == 0:
+            continue
+        log_prior[disease] = math.log(n_rows / total_rows)
+
+        symptom_counts: dict[str, int] = {}
+        for row_symptoms in rows:
+            for token in row_symptoms:
+                symptom_counts[token] = symptom_counts.get(token, 0) + 1
+
+        likelihoods: dict[str, float] = {}
+        denom = n_rows + _LAPLACE_ALPHA * vocab_size
+        for token in vocabulary:
+            count = symptom_counts.get(token, 0)
+            likelihoods[token] = math.log((count + _LAPLACE_ALPHA) / denom)
+        log_likelihood[disease] = likelihoods
+    return log_prior, log_likelihood
+
+
+def _nb_posteriors(
+    recognized_tokens: list[str],
+    diseases: list[str],
+    log_prior: dict[str, float],
+    log_likelihood: dict[str, dict[str, float]],
+) -> dict[str, float]:
+    """Softmax the log-posteriors for `diseases` given `recognized_tokens`,
+    against the supplied (possibly fold-restricted) log_prior/
+    log_likelihood tables. Shared by DiseaseClassifier._raw_posteriors()
+    (production, full-data model) and _fit_calibration_and_thresholds()'s
+    per-fold scoring (fold-restricted model) so the two can never silently
+    drift out of sync with each other."""
+    if not diseases:
+        return {}
+    log_posts: dict[str, float] = {}
+    for disease in diseases:
+        score = log_prior[disease]
+        likelihoods = log_likelihood[disease]
+        for token in recognized_tokens:
+            score += likelihoods.get(token, 0.0)
+        log_posts[disease] = score
+    max_log = max(log_posts.values())
+    exp_scores = {d: math.exp(s - max_log) for d, s in log_posts.items()}
+    total = sum(exp_scores.values())
+    return {d: v / total for d, v in exp_scores.items()}
+
+
+def _unique_profiles_by_disease(
+    rows_by_disease: dict[str, list[list[str]]],
+) -> dict[str, list[tuple[str, ...]]]:
+    """Collapse each disease's (possibly heavily duplicated) rows to its
+    distinct sorted symptom-token tuples, order-preserving on first
+    occurrence (stable for the deterministic seeded shuffle downstream).
+
+    Why this exists: data/disease_symptoms.csv repeats the same (disease,
+    symptom-set) combination up to 90 times (checked directly -- only 304
+    unique combinations across 4,920 rows). Treating raw rows as 4,920
+    independent samples for calibration purposes massively overweights
+    whichever profiles happen to be duplicated most, and -- more
+    importantly -- lets a row-level train/holdout split leak near-exact
+    duplicates across the split boundary. See
+    _fit_calibration_and_thresholds()'s docstring for the full mechanism.
+    """
+    profiles_by_disease: dict[str, list[tuple[str, ...]]] = {}
+    for disease, rows in rows_by_disease.items():
+        seen: set[tuple[str, ...]] = set()
+        ordered: list[tuple[str, ...]] = []
+        for row in rows:
+            profile = tuple(sorted(row))
+            if profile not in seen:
+                seen.add(profile)
+                ordered.append(profile)
+        profiles_by_disease[disease] = ordered
+    return profiles_by_disease
 
 
 @dataclass
@@ -106,28 +231,17 @@ class DiseaseClassifier:
         self._rows_by_disease = rows_by_disease
         self._total_rows = total_rows
 
-        # Precompute log-priors and log-likelihoods once; classify_diseases()
-        # is then just a sum over reported symptoms per disease.
-        self._log_prior: dict[str, float] = {}
-        self._log_likelihood: dict[str, dict[str, float]] = {}
-        for disease, rows in rows_by_disease.items():
-            n_rows = len(rows)
-            self._log_prior[disease] = math.log(n_rows / total_rows)
+        # Precompute log-priors and log-likelihoods once, from ALL rows
+        # (row-level duplication weighting preserved -- see module
+        # docstring); classify_diseases() is then just a sum over reported
+        # symptoms per disease. This PRODUCTION model is unaffected by the
+        # calibration-leakage fix below -- only the abstention thresholds
+        # derived FROM it change, not this estimation itself.
+        self._log_prior, self._log_likelihood = _fit_naive_bayes(rows_by_disease, self.vocabulary)
 
-            symptom_counts: dict[str, int] = {}
-            for row_symptoms in rows:
-                for token in row_symptoms:
-                    symptom_counts[token] = symptom_counts.get(token, 0) + 1
-
-            likelihoods: dict[str, float] = {}
-            denom = n_rows + _LAPLACE_ALPHA * self._vocab_size
-            for token in self.vocabulary:
-                count = symptom_counts.get(token, 0)
-                likelihoods[token] = math.log((count + _LAPLACE_ALPHA) / denom)
-            self._log_likelihood[disease] = likelihoods
-
-        # Fit isotonic calibration and derive abstention thresholds from
-        # a held-out split of the training rows.  Done once at construction.
+        # Fit isotonic calibration and derive abstention thresholds via
+        # leak-free k-fold cross-validation over unique profiles. Done once
+        # at construction. See _fit_calibration_and_thresholds().
         self._calibrator, self._tau, self._delta = self._fit_calibration_and_thresholds()
 
     # ------------------------------------------------------------------
@@ -139,69 +253,121 @@ class DiseaseClassifier:
         recognized = sorted({t for t in symptom_tokens if t in vocab_set})
         if not recognized:
             return {}
-        log_posts: dict[str, float] = {}
-        for disease in self.kb.diseases:
-            score = self._log_prior[disease]
-            likelihoods = self._log_likelihood[disease]
-            for token in recognized:
-                score += likelihoods.get(token, 0.0)
-            log_posts[disease] = score
-        max_log = max(log_posts.values())
-        exp_scores = {d: math.exp(s - max_log) for d, s in log_posts.items()}
-        total = sum(exp_scores.values())
-        return {d: v / total for d, v in exp_scores.items()}
+        return _nb_posteriors(recognized, self.kb.diseases, self._log_prior, self._log_likelihood)
 
     def _fit_calibration_and_thresholds(self):
-        """Fit isotonic calibration and derive τ (Youden's J) and δ (risk-coverage).
+        """Fit isotonic calibration and derive τ (Youden's J) and δ
+        (risk-coverage) via leak-free stratified k-fold cross-validation
+        over UNIQUE (disease, symptom-set) profiles.
+
+        WHY (superseding the prior single 80/20-row-split approach): this
+        codebase's disease_symptoms.csv has 4,920 rows but only 304 unique
+        (disease, symptom-set) combinations -- 94% of rows are exact
+        duplicates of another row for the same disease (checked directly;
+        one profile repeats up to 90 times). A row-level 80/20 split leaks
+        near-identical duplicate rows across the train/holdout boundary:
+        ~95% of held-out rows turned out to be memorized copies scoring
+        ~1.0 raw confidence with near-perfect accuracy, while genuinely
+        novel-to-training profiles (the ~5% isolated by chance) scored
+        much lower and were wrong 94% of the time. Youden's J, fit against
+        that artificial bimodal reality, collapsed τ to exactly 1.0 -- an
+        operating point that only ever accepted an exact-duplicate-of-
+        training query. Compounding this: the prior implementation also
+        scored held-out rows using a model trained on ALL rows (including
+        the held-out rows themselves) -- direct leakage the code used to
+        excuse as "negligible"; it demonstrably was not.
 
         Method:
-          1. Split rows 80/20 by disease (stratified), fixed seed.
-          2. On the 20 % held-out rows, compute NB posteriors using the full
-             model (trained on all rows — acknowledged optimism; a production
-             system would retrain on 80 % only, but on this near-separable
-             dataset the difference is negligible).
-          3. Fit IsotonicRegression on (top_posterior, is_correct) pairs.
-          4. Derive τ via Youden's J index (Youden 1950; BMC Med Res Meth 2024).
-          5. Derive δ via risk-coverage curve (Chow 1970; Geifman & El-Yaniv 2017)
-             at a target selective error of _TARGET_SELECTIVE_ERROR.
+          1. Collapse each disease's rows to its unique (disease,
+             symptom-set) profiles (_unique_profiles_by_disease()).
+          2. Stratified k-fold (k=_CALIBRATION_N_FOLDS) over those
+             profiles, per disease, fixed seed for reproducibility.
+          3. Per fold: refit log-priors/log-likelihoods via
+             _fit_naive_bayes() on ONLY the rows belonging to this fold's
+             TRAINING profiles -- a genuinely separate model per fold, not
+             the full-data model.
+          4. Score every held-out profile in that fold with that fold's
+             own model -- one out-of-fold (raw_top, is_correct, gap)
+             triple per unique profile, 304 total across all folds, each
+             scored by a model that never saw that exact profile during
+             its own training.
+          5. Fit IsotonicRegression on the aggregated 304 out-of-fold
+             (raw_posterior, is_correct) pairs.
+          6. Derive τ via Youden's J index (Youden 1950; BMC Med Res Meth
+             2024) over the calibrated scores.
+          7. Derive δ via risk-coverage curve (Chow 1970; Geifman &
+             El-Yaniv 2017) at target selective error _TARGET_SELECTIVE_ERROR,
+             minimum coverage _MIN_COVERAGE.
+
+        The PRODUCTION model (self._log_prior/self._log_likelihood, set in
+        __init__) is untouched by this method -- still fit once on ALL
+        rows. Only the calibration curve and τ/δ derived from it change.
 
         Returns (calibrator, tau, delta).
         """
         from sklearn.isotonic import IsotonicRegression
 
+        profiles_by_disease = _unique_profiles_by_disease(self._rows_by_disease)
+
         rng = random.Random(_CALIBRATION_SEED)
-
-        # Build held-out rows (stratified: ~20 % per disease)
-        held_out_rows: list[tuple[str, list[str]]] = []  # (true_disease, symptoms)
-        for disease, rows in self._rows_by_disease.items():
-            shuffled = list(rows)
+        # Assign each disease's unique profiles to folds round-robin after
+        # a per-disease shuffle -- stratified, so every disease
+        # contributes to every fold's training side (see
+        # _CALIBRATION_N_FOLDS's comment for why k=5 specifically
+        # guarantees this given the 5-10 profile range).
+        fold_of_profile: dict[tuple[str, tuple[str, ...]], int] = {}
+        for disease, profiles in profiles_by_disease.items():
+            shuffled = list(profiles)
             rng.shuffle(shuffled)
-            n_holdout = max(1, round(len(shuffled) * _CALIBRATION_HOLDOUT_FRACTION))
-            for row in shuffled[:n_holdout]:
-                held_out_rows.append((disease, row))
-
-        if not held_out_rows:
-            # Degenerate fallback — should never happen with real data.
-            return None, 0.5, 0.1
+            for i, profile in enumerate(shuffled):
+                fold_of_profile[(disease, profile)] = i % _CALIBRATION_N_FOLDS
 
         raw_tops: list[float] = []
         is_correct: list[int] = []
         gaps: list[float] = []
 
         vocab_set = set(self.vocabulary)
-        for true_disease, row_symptoms in held_out_rows:
-            recognized = sorted({t for t in row_symptoms if t in vocab_set})
-            if not recognized:
+        for fold_idx in range(_CALIBRATION_N_FOLDS):
+            held_out = [
+                key for key, f in fold_of_profile.items() if f == fold_idx
+            ]
+            if not held_out:
                 continue
-            probs = self._raw_posteriors(recognized)
-            if not probs:
-                continue
-            sorted_probs = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
-            top_d, top_p = sorted_probs[0]
-            second_p = sorted_probs[1][1] if len(sorted_probs) > 1 else 0.0
-            raw_tops.append(top_p)
-            is_correct.append(1 if top_d == true_disease else 0)
-            gaps.append(top_p - second_p)
+
+            # Training rows for this fold: every row EXCEPT rows whose
+            # (disease, profile) is held out this fold. Row-level
+            # duplication weighting is preserved WITHIN the training set
+            # (matches the production model's own methodology) -- only the
+            # held-out side is deduplicated to unique profiles.
+            held_out_profiles_by_disease: dict[str, set[tuple[str, ...]]] = {}
+            for disease, profile in held_out:
+                held_out_profiles_by_disease.setdefault(disease, set()).add(profile)
+
+            train_rows_by_disease: dict[str, list[list[str]]] = {}
+            for disease, rows in self._rows_by_disease.items():
+                excluded = held_out_profiles_by_disease.get(disease, set())
+                kept = [row for row in rows if tuple(sorted(row)) not in excluded]
+                if kept:
+                    train_rows_by_disease[disease] = kept
+
+            fold_log_prior, fold_log_likelihood = _fit_naive_bayes(
+                train_rows_by_disease, self.vocabulary
+            )
+            fold_diseases = list(fold_log_prior.keys())
+
+            for true_disease, profile in held_out:
+                recognized = sorted({t for t in profile if t in vocab_set})
+                if not recognized:
+                    continue
+                probs = _nb_posteriors(recognized, fold_diseases, fold_log_prior, fold_log_likelihood)
+                if not probs:
+                    continue
+                sorted_probs = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
+                top_d, top_p = sorted_probs[0]
+                second_p = sorted_probs[1][1] if len(sorted_probs) > 1 else 0.0
+                raw_tops.append(top_p)
+                is_correct.append(1 if top_d == true_disease else 0)
+                gaps.append(top_p - second_p)
 
         if not raw_tops:
             return None, 0.5, 0.1

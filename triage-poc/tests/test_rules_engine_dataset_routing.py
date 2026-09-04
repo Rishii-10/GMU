@@ -34,20 +34,48 @@ ALL_DS_NEGATIVE = DangerSigns(
 )
 
 
-# --- Young infant (<2mo): unchanged, NOT rerouted to the dataset classifier --
+# --- Young infant (<2mo): escalated, NOT rerouted to the dataset classifier --
 
 
-def test_young_infant_still_incomplete_not_rerouted_to_dataset():
+@pytest.mark.parametrize("age_months", [0, 1])
+def test_young_infant_still_incomplete_not_rerouted_to_dataset(age_months):
     case = make_case(
-        age_months=1,
+        age_months=age_months,
         danger_signs=ALL_DS_NEGATIVE,
         symptom_tokens=["high_fever", "chills"],  # even with dataset-recognizable symptoms
     )
     result = classify(case)
     assert result.label == ClassificationLabel.INCOMPLETE_ASSESSMENT
-    assert result.condition == "AGE_OUT_OF_MODULE_SCOPE"
+    # Distinct from the generic out-of-scope guard on purpose -- see
+    # app/schemas.py's ClassificationLabel.INCOMPLETE_ASSESSMENT docstring
+    # comment and app/rules_engine.py's classify() young-infant branch.
+    assert result.condition == "YOUNG_INFANT_NO_VALIDATED_RULESET"
+    assert result.condition != "AGE_OUT_OF_MODULE_SCOPE"
     assert result.candidates == []  # must not have used the dataset path
     assert result.probable_disease is None
+
+
+@pytest.mark.parametrize("age_months", [0, 1])
+def test_young_infant_never_calls_classify_via_dataset(age_months, monkeypatch):
+    # Direct spy on the function itself, not just an indirect outcome check
+    # (the test above already checks candidates/probable_disease are empty,
+    # but this confirms classify_via_dataset() is never even invoked).
+    def _fail_if_called(case):
+        raise AssertionError(
+            "classify_via_dataset() must never be called for age_months < 2"
+        )
+
+    monkeypatch.setattr("app.rules_engine.classify_via_dataset", _fail_if_called)
+    case = make_case(
+        age_months=age_months,
+        danger_signs=ALL_DS_NEGATIVE,
+        symptom_tokens=["high_fever", "chills", "sweating", "vomiting"],  # a
+        # rich enough set that, on the adult path, would confidently route
+        # to and through classify_via_dataset() -- included specifically so
+        # this isn't passing merely because there was nothing to classify.
+    )
+    result = classify(case)  # would raise via the monkeypatch if misrouted
+    assert result.condition == "YOUNG_INFANT_NO_VALIDATED_RULESET"
 
 
 # --- Adult/elderly routing -----------------------------------------------

@@ -45,7 +45,9 @@ def _build_report_prompt(
 ) -> str:
     lines = [
         f"Patient-reported symptom text: {case.raw_symptom_text!r}",
-        f"Age: {case.age_months} months" if case.age_months is not None else f"Age group: {case.age_group.value}",
+        f"Age: {case.age_months} months"
+        if case.age_months is not None
+        else (f"Age group: {case.age_group.value}" if case.age_group is not None else "Age: not stated"),
         f"Duration: {case.duration or 'not stated'}",
     ]
     if case.danger_signs.any_true():

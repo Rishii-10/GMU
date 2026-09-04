@@ -293,7 +293,11 @@ def render_case_details(case: ExtractedCase) -> None:
         st.markdown('<div class="field-label">Severity (as stated)</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="field-value">{case.severity.value}</div>', unsafe_allow_html=True)
     with col2:
-        age = f"{case.age_months} months" if case.age_months is not None else case.age_group.value
+        age = (
+            f"{case.age_months} months"
+            if case.age_months is not None
+            else (case.age_group.value if case.age_group is not None else "not stated")
+        )
         st.markdown('<div class="field-label">Age</div>', unsafe_allow_html=True)
         st.markdown(f'<div class="field-value">{age}</div>', unsafe_allow_html=True)
         st.markdown('<div class="field-label">Location (as stated)</div>', unsafe_allow_html=True)
