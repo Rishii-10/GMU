@@ -10,18 +10,16 @@ via the Google Cloud Translation API's plain REST v2 endpoint over
 same "avoid an SDK where a direct HTTP call suffices" bias as
 app.integrations.messaging.TwilioProvider).
 
-It is NOT wired directly into app.agent1_extraction.extract_case()/
-extract_case_with_followup() by this task, and that is a deliberate
-choice, not an oversight: those functions' backends (Ollama/Groq) are
-already explicitly prompted to read Hindi/Tamil/English/mixed lay terms
-directly (see EXTRACTION_SYSTEM_PROMPT in agent1_extraction.py), and
-app.disambiguation's FAISS matching already handles Hindi/Hinglish
-natively via a multilingual embedding model -- translation is not required
-for correctness anywhere in the current pipeline. Wiring a mandatory
-pre-translation step into extract_case() would be a real, separate design
-change to already-tested multilingual behavior, not something to bundle
-silently into "add a provisions seam." A caller who wants to use this
-adapter composes it explicitly:
+This adapter is NOT wired into app.agent1_extraction.extract_case()/
+extract_case_with_followup() itself -- those stay language-agnostic, and
+their backends (Ollama/Groq) are already prompted to read
+Hindi/Tamil/English/mixed lay terms directly (see EXTRACTION_SYSTEM_PROMPT
+in agent1_extraction.py). The input/output translation wrapper lives one
+layer out, in app.integrations.language_gateway.LanguageGateway, which the
+Streamlit frontend now uses to detect the caregiver's language, translate
+the inbound message to English before the pipeline, and translate every
+user-facing string back afterward. A caller who wants to compose this
+adapter directly instead does:
 
     translator = GoogleTranslateProvider()
     detected = translator.detect_language(patient_text)
@@ -70,6 +68,14 @@ class Translator(ABC):
     def detect_language(self, text: str) -> Optional[str]:
         """Returns an ISO 639-1 code (e.g. "hi", "en") or None if
         undetected/unsupported."""
+
+    def translate_batch(self, texts: list[str], target_language: str = "en") -> list[TranslationResult]:
+        """Translate several strings at once, preserving order. Default
+        implementation just loops translate() -- concrete providers override
+        this when their API can do it in a single round trip (see
+        GoogleTranslateProvider). Same no-raise contract as translate():
+        an unreachable backend degrades to per-item passthrough."""
+        return [self.translate(t, target_language=target_language) for t in texts]
 
 
 class IdentityTranslator(Translator):
@@ -131,6 +137,43 @@ class GoogleTranslateProvider(Translator):
             source_language=translation.get("detectedSourceLanguage"),
             target_language=target_language,
         )
+
+    def translate_batch(self, texts: list[str], target_language: str = "en") -> list[TranslationResult]:
+        """Single POST with repeated `q` params -- Google Translate v2
+        returns a parallel `translations` array in the same order. `requests`
+        serializes data={"q": [...]} as repeated params automatically. On
+        network failure, degrades to element-wise passthrough (same posture
+        as translate())."""
+        if not texts:
+            return []
+        import requests
+
+        try:
+            resp = requests.post(
+                "https://translation.googleapis.com/language/translate/v2",
+                params={"key": self.api_key},
+                data={"q": list(texts), "target": target_language, "format": "text"},
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+        except requests.RequestException:
+            return [
+                TranslationResult(
+                    original_text=t, translated_text=t, source_language=None, target_language=target_language
+                )
+                for t in texts
+            ]
+
+        translations = resp.json()["data"]["translations"]
+        return [
+            TranslationResult(
+                original_text=orig,
+                translated_text=tr["translatedText"],
+                source_language=tr.get("detectedSourceLanguage"),
+                target_language=target_language,
+            )
+            for orig, tr in zip(texts, translations)
+        ]
 
     def detect_language(self, text: str) -> Optional[str]:
         import requests

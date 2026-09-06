@@ -22,6 +22,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Load a local .env (repo root or triage-poc/) so opt-in provider keys like
+# GOOGLE_TRANSLATE_API_KEY are picked up without exporting them by hand.
+# Optional: if python-dotenv isn't installed, real env vars still work.
+try:
+    from dotenv import find_dotenv, load_dotenv
+
+    load_dotenv(find_dotenv(usecwd=True) or None)
+except ImportError:
+    pass
+
 import streamlit as st
 
 from app.agent1_extraction import (
@@ -31,96 +41,191 @@ from app.agent1_extraction import (
     extract_and_classify,
     question_for_incomplete_result,
 )
+from app.integrations.language_gateway import LanguageGateway
 from app.routing.demo_facilities import VILLAGES, build_demo_facility_db
 from app.routing.report import generate_doctor_report
 from app.routing.router import route, urgency_for_label
 from app.routing.schemas import DispatchResult
 from app.schemas import ClassificationLabel, ClassificationResult, ExtractedCase
 
+
+def _t(gw: LanguageGateway | None, s):
+    """Translate one outbound English string into the caregiver's language
+    (no-op when gw is None or the language is English/undetected)."""
+    return gw.from_english(s) if gw is not None else s
+
+
+def _tb(gw: LanguageGateway | None, items):
+    """Batch form of _t() for a list of strings -- one translation round trip."""
+    return gw.from_english_batch(list(items)) if gw is not None else list(items)
+
 st.set_page_config(page_title="Rural Health Triage", page_icon="🩺", layout="wide")
 
 # ---------------------------------------------------------------------------
-# Style
+# Style -- dark theme
+#
+# One palette drives both the CSS below and the Python colour tables further
+# down, so the two can't drift apart. Every foreground here sits on BG/SURFACE
+# at >= 4.5:1, and each severity foreground is paired with a dark tint of its
+# own hue instead of its light-mode background.
 # ---------------------------------------------------------------------------
+BG          = "#0E1117"   # app background
+SURFACE     = "#161B22"   # cards, panels
+SURFACE_2   = "#1C232D"   # nested / raised surfaces
+BORDER      = "#2E3742"   # hairlines, bar tracks
+BORDER_2    = "#3A4553"   # stronger dividers
+TRACK       = "#414B58"   # empty portion of a progress bar / table rules
+TEXT        = "#E6EDF3"   # body text
+TEXT_DIM    = "#9AA7B4"   # labels, captions
+PRIMARY     = "#5AA9FF"   # accent (links, bars, buttons)
+PRIMARY_HOV = "#7CBCFF"
+PRIMARY_BG  = "#152534"   # accent tint background
+ON_ACCENT   = "#0B1017"   # text drawn on top of a bright accent fill
+
+# Severity hues: (foreground, tinted background)
+C_EMERGENCY = ("#FF7B72", "#2E1416")
+C_SEVERE    = ("#FFA657", "#2E1E10")
+C_MODERATE  = ("#E3C25F", "#2B2510")
+C_MILD      = ("#56D364", "#10251A")
+C_NEUTRAL   = ("#B4C0CC", "#20262E")
+
 st.markdown(
-    """
+    f"""
     <style>
-    .stApp { background-color: #FFFFFF; }
-    html, body, [class*="css"] { font-size: 17px; color: #111111; }
-    h1 { font-size: 2.0rem !important; color: #111111; }
-    h2 { font-size: 1.4rem !important; color: #111111; margin-top: 0.4rem; }
-    h3 { font-size: 1.15rem !important; color: #222222; }
-    .stTextArea textarea { font-size: 16px; color: #111111; background-color: #FFFFFF; }
-    .stButton button {
+    .stApp {{ background-color: {BG}; color: {TEXT}; }}
+    html, body, [class*="css"] {{ font-size: 17px; color: {TEXT}; }}
+    h1 {{ font-size: 2.0rem !important; color: {TEXT}; }}
+    h2 {{ font-size: 1.4rem !important; color: {TEXT}; margin-top: 0.4rem; }}
+    h3 {{ font-size: 1.15rem !important; color: {TEXT}; }}
+    h4, h5, h6 {{ color: {TEXT}; }}
+    a, a:visited {{ color: {PRIMARY}; }}
+    hr {{ border-color: {BORDER}; }}
+    code {{ color: {PRIMARY}; background-color: {SURFACE_2}; }}
+
+    /* Streamlit paints its own chrome from the resolved theme, which falls back
+       to the viewer's OS light/dark preference when the project config isn't
+       picked up. Pin the chrome here so the app is dark either way -- otherwise
+       a white header washes out the dark page beneath it. */
+    header[data-testid="stHeader"] {{ background: {BG}; }}
+    [data-testid="stToolbar"] *, [data-testid="stHeader"] * {{ color: {TEXT_DIM}; }}
+    [data-testid="stWidgetLabel"], [data-testid="stWidgetLabel"] * {{ color: {TEXT}; }}
+    [data-testid="stJson"], pre {{ background-color: {SURFACE_2}; color: {TEXT}; }}
+
+    /* Same reason: give each alert kind its own dark tint instead of inheriting
+       a light one that our light body text would disappear into. */
+    [data-testid="stAlertContainer"] {{ color: {TEXT}; }}
+    [data-testid="stAlertContentInfo"] {{ background-color: {PRIMARY_BG}; color: {TEXT}; }}
+    [data-testid="stAlertContentSuccess"] {{ background-color: {C_MILD[1]}; color: {C_MILD[0]}; }}
+    [data-testid="stAlertContentWarning"] {{ background-color: {C_MODERATE[1]}; color: {C_MODERATE[0]}; }}
+    [data-testid="stAlertContentError"] {{ background-color: {C_EMERGENCY[1]}; color: {C_EMERGENCY[0]}; }}
+
+    section[data-testid="stSidebar"] {{
+        background-color: {SURFACE}; border-right: 1px solid {BORDER};
+    }}
+    section[data-testid="stSidebar"] * {{ color: {TEXT}; }}
+    [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] p {{
+        color: {TEXT_DIM} !important;
+    }}
+    [data-testid="stMetricLabel"] {{ color: {TEXT_DIM}; }}
+    [data-testid="stMetricValue"] {{ color: {TEXT}; }}
+
+    .stTextArea textarea, .stTextInput input, .stNumberInput input {{
+        font-size: 16px; color: {TEXT}; background-color: {SURFACE};
+        border: 1px solid {BORDER};
+    }}
+    .stTextArea textarea::placeholder, .stTextInput input::placeholder {{ color: {TEXT_DIM}; }}
+    [data-baseweb="select"] > div {{
+        background-color: {SURFACE}; border-color: {BORDER}; color: {TEXT};
+    }}
+    [data-baseweb="popover"] li {{ background-color: {SURFACE}; color: {TEXT}; }}
+
+    .stButton button {{
         font-size: 17px; font-weight: 600; padding: 0.6rem 1rem;
-        background-color: #1E5FA8; color: #FFFFFF; border: none; border-radius: 6px;
-    }
-    .stButton button:hover { background-color: #164A85; }
-    .stTabs [data-baseweb="tab"] { font-size: 17px; font-weight: 600; padding: 0.6rem 1rem; }
+        background-color: {PRIMARY}; color: {ON_ACCENT}; border: none; border-radius: 6px;
+    }}
+    .stButton button:hover {{ background-color: {PRIMARY_HOV}; color: {ON_ACCENT}; }}
+    .stTabs [data-baseweb="tab"] {{
+        font-size: 17px; font-weight: 600; padding: 0.6rem 1rem; color: {TEXT_DIM};
+    }}
+    .stTabs [aria-selected="true"] {{ color: {PRIMARY}; }}
+    .stTabs [data-baseweb="tab-list"] {{ border-bottom: 1px solid {BORDER}; }}
 
-    .field-label { color: #666666; font-size: 13px; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: -0.3rem; }
-    .field-value { font-size: 17px; color: #111111; margin-bottom: 0.6rem; }
+    [data-testid="stExpander"] {{
+        border: 1px solid {BORDER}; border-radius: 8px; background-color: {SURFACE};
+    }}
+    [data-testid="stExpander"] summary {{ color: {TEXT}; }}
 
-    .banner {
+    .field-label {{
+        color: {TEXT_DIM}; font-size: 13px; text-transform: uppercase;
+        letter-spacing: 0.03em; margin-bottom: -0.3rem;
+    }}
+    .field-value {{ font-size: 17px; color: {TEXT}; margin-bottom: 0.6rem; }}
+
+    .banner {{
         padding: 1.1rem 1.4rem; border-radius: 10px; margin: 0.6rem 0 1rem 0;
         font-size: 24px; font-weight: 700; border-left: 8px solid;
-    }
-    .subbanner { font-size: 16px; font-weight: 400; display: block; margin-top: 0.3rem; }
-    .big-banner { font-size: 30px; padding: 1.6rem 1.8rem; }
-    .big-banner .subbanner { font-size: 19px; }
+    }}
+    .subbanner {{ font-size: 16px; font-weight: 400; display: block; margin-top: 0.3rem; }}
+    .big-banner {{ font-size: 30px; padding: 1.6rem 1.8rem; }}
+    .big-banner .subbanner {{ font-size: 19px; }}
 
-    .card {
-        border: 1px solid #E3E3E3; border-radius: 10px; padding: 1rem 1.2rem;
-        margin-bottom: 1rem; background-color: #FAFAFA;
-    }
-    .action-card {
-        border: 1px solid #D8D8D8; border-left: 8px solid #1E5FA8; border-radius: 8px;
-        padding: 1rem 1.2rem; margin-bottom: 1rem; background-color: #F3F7FC;
-        font-size: 19px; font-weight: 600;
-    }
-    .tag {
+    .card {{
+        border: 1px solid {BORDER}; border-radius: 10px; padding: 1rem 1.2rem;
+        margin-bottom: 1rem; background-color: {SURFACE}; color: {TEXT};
+    }}
+    .action-card {{
+        border: 1px solid {BORDER}; border-left: 8px solid {PRIMARY}; border-radius: 8px;
+        padding: 1rem 1.2rem; margin-bottom: 1rem; background-color: {PRIMARY_BG};
+        color: {TEXT}; font-size: 19px; font-weight: 600;
+    }}
+    .tag {{
         display: inline-block; padding: 0.15rem 0.6rem; margin: 0.15rem 0.3rem 0.15rem 0;
-        border-radius: 999px; background-color: #E7EEF7; color: #1E5FA8;
-        font-size: 14px; font-weight: 600;
-    }
-    .pill-yes { color: #8A0000; font-weight: 700; }
-    .pill-no { color: #1B6B33; font-weight: 700; }
-    .pill-na { color: #888888; font-style: italic; }
+        border-radius: 999px; background-color: {PRIMARY_BG}; color: {PRIMARY};
+        border: 1px solid {BORDER_2}; font-size: 14px; font-weight: 600;
+    }}
+    .pill-yes {{ color: {C_EMERGENCY[0]}; font-weight: 700; }}
+    .pill-no {{ color: {C_MILD[0]}; font-weight: 700; }}
+    .pill-na {{ color: {TEXT_DIM}; font-style: italic; }}
 
-    .doctor-report {
-        border: 2px solid #8A0000; border-radius: 10px; padding: 1.2rem 1.4rem;
-        background-color: #FDECEC; margin-top: 0.6rem;
-    }
-    .reasoning-line {
-        padding: 0.35rem 0; border-bottom: 1px solid #EAEAEA; font-size: 15.5px;
-    }
-    .facility-card {
-        border: 1px solid #D8D8D8; border-radius: 8px; padding: 0.8rem 1rem;
-        background-color: #FFFFFF; margin-bottom: 0.5rem;
-    }
-    .facility-card.big { font-size: 19px; padding: 1.1rem 1.3rem; }
-    .checklist-item {
+    .doctor-report {{
+        border: 2px solid {C_EMERGENCY[0]}; border-radius: 10px; padding: 1.2rem 1.4rem;
+        background-color: {C_EMERGENCY[1]}; color: {TEXT}; margin-top: 0.6rem;
+    }}
+    .reasoning-line {{
+        padding: 0.35rem 0; border-bottom: 1px solid {BORDER}; font-size: 15.5px;
+        color: {TEXT};
+    }}
+    .facility-card {{
+        border: 1px solid {BORDER}; border-radius: 8px; padding: 0.8rem 1rem;
+        background-color: {SURFACE}; color: {TEXT}; margin-bottom: 0.5rem;
+    }}
+    .facility-card.big {{ font-size: 19px; padding: 1.1rem 1.3rem; }}
+    .checklist-item {{
         padding: 0.5rem 0.8rem; margin-bottom: 0.4rem; border-radius: 6px;
-        background-color: #FFF6E5; border-left: 5px solid #B98900; font-size: 16px;
-    }
+        background-color: {C_MODERATE[1]}; border-left: 5px solid {C_MODERATE[0]};
+        color: {TEXT}; font-size: 16px;
+    }}
+
+    /* Tables in the rule-engine view are raw HTML, so they need explicit text. */
+    table {{ color: {TEXT}; }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
 LABEL_DISPLAY = {
-    ClassificationLabel.EMERGENCY: ("🚨 EMERGENCY", "#8A0000", "#FDECEC"),
-    ClassificationLabel.SEVERE: ("⚠️ SEVERE", "#9A4B00", "#FDF0DF"),
-    ClassificationLabel.MODERATE: ("● MODERATE", "#8A6D00", "#FCF6DC"),
-    ClassificationLabel.MILD: ("✓ MILD", "#1B6B33", "#E8F5EA"),
-    ClassificationLabel.INCOMPLETE_ASSESSMENT: ("? MORE INFO NEEDED", "#444444", "#F0F0F0"),
+    ClassificationLabel.EMERGENCY: ("🚨 EMERGENCY", *C_EMERGENCY),
+    ClassificationLabel.SEVERE: ("⚠️ SEVERE", *C_SEVERE),
+    ClassificationLabel.MODERATE: ("● MODERATE", *C_MODERATE),
+    ClassificationLabel.MILD: ("✓ MILD", *C_MILD),
+    ClassificationLabel.INCOMPLETE_ASSESSMENT: ("? MORE INFO NEEDED", *C_NEUTRAL),
 }
 
 SEVERITY_TAG = {
-    ClassificationLabel.EMERGENCY: ("EMERGENCY", "#8A0000", "#FDECEC"),
-    ClassificationLabel.SEVERE: ("SEVERE", "#9A4B00", "#FDF0DF"),
-    ClassificationLabel.MODERATE: ("MODERATE", "#8A6D00", "#FCF6DC"),
-    ClassificationLabel.MILD: ("MILD", "#1B6B33", "#E8F5EA"),
+    ClassificationLabel.EMERGENCY: ("EMERGENCY", *C_EMERGENCY),
+    ClassificationLabel.SEVERE: ("SEVERE", *C_SEVERE),
+    ClassificationLabel.MODERATE: ("MODERATE", *C_MODERATE),
+    ClassificationLabel.MILD: ("MILD", *C_MILD),
 }
 
 # Plain-language message for the caller/caregiver tab -- no clinical jargon.
@@ -265,7 +370,7 @@ def render_facility_card(dispatch: DispatchResult, big: bool = False) -> None:
     f = dispatch.facility
     r = dispatch.route
     st.markdown(
-        f'<span class="tag" style="background-color:#FDF0DF; color:#9A4B00;">{dispatch.urgency}</span>',
+        f'<span class="tag" style="background-color:{C_SEVERE[1]}; color:{C_SEVERE[0]}; border-color:{C_SEVERE[0]};">{dispatch.urgency}</span>',
         unsafe_allow_html=True,
     )
     css_class = "facility-card big" if big else "facility-card"
@@ -473,6 +578,8 @@ def ensure_dispatch_and_report(cur: dict, backend) -> None:
         cur["report"] = None
     else:
         with st.spinner("Preparing handoff report..."):
+            # Doctor-facing -- kept in English regardless of the caregiver's
+            # language (only the Caller/Caregiver tab is translated).
             cur["report"] = generate_doctor_report(case, result, dispatch, backend)
 
 
@@ -481,32 +588,33 @@ def ensure_dispatch_and_report(cur: dict, backend) -> None:
 # ---------------------------------------------------------------------------
 def render_caller_view(cur: dict) -> None:
     result: ClassificationResult = cur["result"]
+    gw: LanguageGateway | None = cur.get("gw")
     headline, sub = CALLER_MESSAGE[result.label]
     fg, bg = LABEL_DISPLAY[result.label][1], LABEL_DISPLAY[result.label][2]
     st.markdown(
         f'<div class="banner big-banner" style="color:{fg}; background-color:{bg}; border-left-color:{fg};">'
-        f"{headline}<span class=\"subbanner\">{sub}</span></div>",
+        f"{_t(gw, headline)}<span class=\"subbanner\">{_t(gw, sub)}</span></div>",
         unsafe_allow_html=True,
     )
 
     dispatch = cur.get("dispatch")
     if dispatch is not None and not dispatch.no_facility_found:
-        st.markdown("#### Where to go")
+        st.markdown(f"#### {_t(gw, 'Where to go')}")
         render_facility_card(dispatch, big=True)
     elif urgency_for_label(result.label) is not None and village_choice == "Not specified":
-        st.info("Pick the patient's village in the sidebar to see the nearest facility and directions.")
+        st.info(_t(gw, "Pick the patient's village in the sidebar to see the nearest facility and directions."))
 
     if result.label in (ClassificationLabel.MILD, ClassificationLabel.MODERATE) and result.candidates and result.candidates[0].precautions:
-        st.markdown("#### What you should do")
-        for p in result.candidates[0].precautions:
+        st.markdown(f"#### {_t(gw, 'What you should do')}")
+        for p in _tb(gw, list(result.candidates[0].precautions)):
             st.markdown(f"- {p}")
 
     if result.label == ClassificationLabel.INCOMPLETE_ASSESSMENT:
         next_q = question_for_incomplete_result(result)
         if next_q:
-            st.markdown("#### Please answer this")
-            st.info(next_q)
-            st.caption("Add the answer to your message above and press Assess again.")
+            st.markdown(f"#### {_t(gw, 'Please answer this')}")
+            st.info(_t(gw, next_q))
+            st.caption(_t(gw, "Add the answer to your message above and press Assess again."))
 
 
 def render_asha_view(cur: dict) -> None:
@@ -595,9 +703,9 @@ def render_doctor_view(cur: dict) -> None:
 # Rule Engine Output view
 # ---------------------------------------------------------------------------
 _BAND_STYLE = {
-    "NON_URGENT": ("#1B6B33", "#E8F5EA", "✓ NON-URGENT"),
-    "URGENT":     ("#8A6D00", "#FCF6DC", "● URGENT"),
-    "EMERGENCY":  ("#8A0000", "#FDECEC", "🚨 EMERGENCY"),
+    "NON_URGENT": (*C_MILD, "✓ NON-URGENT"),
+    "URGENT":     (*C_MODERATE, "● URGENT"),
+    "EMERGENCY":  (*C_EMERGENCY, "🚨 EMERGENCY"),
 }
 
 _ESI_LABEL = {1: "ESI 1 — Resuscitation", 2: "ESI 2 — Emergent",
@@ -650,8 +758,8 @@ def render_rule_engine_view(cur: dict) -> None:
             st.markdown(
                 f'<div class="card" style="margin-bottom:0.5rem;">'
                 f'<b>#{i+1} {c.name}</b> {badge} — score {c.score:.1%}<br>'
-                f'<div style="background:#E3E3E3;border-radius:4px;height:10px;margin:4px 0;">'
-                f'<div style="background:#1E5FA8;width:{bar_pct}%;height:10px;border-radius:4px;"></div></div>'
+                f'<div style="background:{TRACK};border-radius:4px;height:10px;margin:4px 0;">'
+                f'<div style="background:{PRIMARY};width:{bar_pct}%;height:10px;border-radius:4px;"></div></div>'
                 f'Matched symptoms: {", ".join(c.matched_symptoms) or "none"}'
                 f'</div>',
                 unsafe_allow_html=True,
@@ -667,7 +775,7 @@ def render_rule_engine_view(cur: dict) -> None:
             "either the case is on the pediatric IMCI path or Stage 1 abstained."
         )
     else:
-        fg, bg, label_text = _BAND_STYLE.get(er.band.value, ("#444", "#F0F0F0", er.band.value))
+        fg, bg, label_text = _BAND_STYLE.get(er.band.value, (*C_NEUTRAL, er.band.value))
 
         # Score gauge
         st.markdown(
@@ -682,9 +790,9 @@ def render_rule_engine_view(cur: dict) -> None:
         gauge_pct = int(er.score * 10)
         gauge_color = fg
         st.markdown(
-            f'<div style="background:#E3E3E3;border-radius:6px;height:18px;margin:0.5rem 0 1rem 0;">'
+            f'<div style="background:{TRACK};border-radius:6px;height:18px;margin:0.5rem 0 1rem 0;">'
             f'<div style="background:{gauge_color};width:{gauge_pct}%;height:18px;border-radius:6px;'
-            f'display:flex;align-items:center;justify-content:center;color:white;font-size:12px;font-weight:700;">'
+            f'display:flex;align-items:center;justify-content:center;color:{ON_ACCENT};font-size:12px;font-weight:700;">'
             f'{er.score}/10</div></div>',
             unsafe_allow_html=True,
         )
@@ -723,8 +831,8 @@ def render_rule_engine_view(cur: dict) -> None:
                 f"<td style='padding:6px 8px;text-align:center;'>{weight:.3f}</td>"
                 f"<td style='padding:6px 8px;'>"
                 f"<div style='display:flex;align-items:center;gap:6px;'>"
-                f"<div style='background:#E3E3E3;border-radius:3px;height:10px;width:80px;flex-shrink:0;'>"
-                f"<div style='background:#1E5FA8;width:{bar_w}%;height:10px;border-radius:3px;'></div></div>"
+                f"<div style='background:{TRACK};border-radius:3px;height:10px;width:80px;flex-shrink:0;'>"
+                f"<div style='background:{PRIMARY};width:{bar_w}%;height:10px;border-radius:3px;'></div></div>"
                 f"<span>{attr_s:.2f}</span></div></td>"
                 f"<td style='padding:6px 8px;text-align:center;'>{contrib:.4f}</td>"
                 f"</tr>"
@@ -732,13 +840,13 @@ def render_rule_engine_view(cur: dict) -> None:
 
         st.markdown(
             f'<table style="width:100%;border-collapse:collapse;font-size:15px;">'
-            f'<thead><tr style="border-bottom:2px solid #E3E3E3;">'
+            f'<thead><tr style="border-bottom:2px solid {TRACK};">'
             f'<th style="text-align:left;padding:6px 8px;">Attribute</th>'
             f'<th style="text-align:center;padding:6px 8px;">AHP Weight</th>'
             f'<th style="text-align:left;padding:6px 8px;">Score (0–1)</th>'
             f'<th style="text-align:center;padding:6px 8px;">Contribution</th>'
             f'</tr></thead><tbody>{rows_html}</tbody>'
-            f'<tfoot><tr style="border-top:2px solid #E3E3E3;font-weight:700;">'
+            f'<tfoot><tr style="border-top:2px solid {TRACK};font-weight:700;">'
             f'<td colspan="3" style="padding:6px 8px;">Weighted acuity total → Emergency score</td>'
             f'<td style="text-align:center;padding:6px 8px;">'
             f'{sum(er.attribute_scores.get(k,0)*er.attribute_weights.get(k,0) for k in er.attribute_weights):.4f} → {er.score}/10</td>'
@@ -763,9 +871,15 @@ if assess_clicked:
         st.warning("Please enter a symptom description first.")
     else:
         backend = OllamaBackend()
+        gw = LanguageGateway()
         try:
-            with st.spinner("Extracting and classifying..."):
-                case, result = extract_and_classify(text, backend)
+            with st.spinner("Detecting language, extracting and classifying..."):
+                english_text = gw.to_english(text)
+                case, result = extract_and_classify(english_text, backend, language=gw.language)
+                # Keep the caregiver's original words on the audit field --
+                # extract_case() stores the (English) text it was handed.
+                if english_text != text:
+                    case = case.model_copy(update={"raw_symptom_text": text})
         except BackendUnavailable as e:
             st.error(
                 f"Ollama backend unavailable: {e}\n\n"
@@ -781,7 +895,7 @@ if assess_clicked:
                     "text": text,
                 }
             )
-            st.session_state.current = {"case": case, "result": result}
+            st.session_state.current = {"case": case, "result": result, "gw": gw}
 
 if st.session_state.current is not None:
     backend = OllamaBackend()

@@ -3,10 +3,9 @@
   "configurations": [
     {
       "name": "triage-poc",
-      "runtimeExecutable": "/Users/sanjivan/Documents/Gmu Research/triage-poc/.venv/bin/streamlit",
-      "runtimeArgs": ["run", "streamlit_app.py", "--server.headless", "true", "--server.port", "8501"],
-      "port": 8501,
-      "cwd": "/Users/sanjivan/Documents/Gmu Research/triage-poc"
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "streamlit", "run", "triage-poc/streamlit_app.py", "--server.headless", "true", "--server.port", "8501"],
+      "port": 8501
     }
   ]
 }
