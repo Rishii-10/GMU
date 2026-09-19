@@ -45,6 +45,7 @@ from app.rules_engine import classify as rules_classify
 from app.disambiguation import DisambiguationResult, Disambiguator, StubDisambiguator
 from app.case_store import CaseStore
 from app import followup_policy
+from app import followup_question_selector as fqs
 
 EXTRACTION_SYSTEM_PROMPT = """You are a medical field-extraction assistant for a rural SMS/IVR triage \
 system. Extract ONLY the fields below from the patient/caregiver message. Support Hindi, Tamil, \
@@ -948,3 +949,151 @@ def extract_and_classify_with_followup(
     if case_store is not None:
         case_store.record(case, result)
     return case, followup_trail, result
+
+
+# ---------------------------------------------------------------------------
+# Adaptive post-classification follow-up (CP-driven)
+# ---------------------------------------------------------------------------
+
+_ADAPTIVE_FOLLOWUP_SYSTEM_PROMPT = """\
+You are a multilingual rural-health triage assistant. Your task is to convert
+a raw symptom token (from a medical vocabulary list) into a single, clear
+yes/no question appropriate for a caregiver or patient in a low-resource
+setting. The question must:
+  1. Be answerable with a simple "yes" or "no".
+  2. Use plain everyday language — no medical jargon.
+  3. Be specific enough that the answer will help distinguish between the
+     listed possible diseases.
+  4. If the patient's language is provided, phrase it in that language.
+Output ONLY the question text — no preamble, no explanation, no quotation marks.
+"""
+
+
+def generate_followup_question_text(
+    question_token: str,
+    prediction_set: list[str],
+    severity_map: dict[str, str],
+    backend: "LLMBackend",
+    language: Optional[str] = None,
+) -> str:
+    """Ask the Groq LLM to turn a symptom token into a natural-language
+    yes/no question. Falls back to the template dictionary when the backend
+    is unavailable or raises.
+
+    This is the one place in the pipeline where the LLM does real clinical
+    reasoning work: it must phrase the question correctly given (a) the
+    symptom being probed, (b) which diseases are in contention, and (c) the
+    patient's language, drawing on its training knowledge of how symptoms
+    present across those diseases.
+    """
+    disease_list = ", ".join(
+        f"{d} ({severity_map.get(d, 'UNKNOWN')})" for d in prediction_set
+    )
+    lang_hint = f" The patient speaks {language}." if language else ""
+    user_prompt = (
+        f"Symptom token to ask about: {question_token!r}\n"
+        f"Diseases in contention: {disease_list}\n"
+        f"Ask a yes/no question about this symptom that helps distinguish "
+        f"between the listed diseases.{lang_hint}"
+    )
+    try:
+        return backend.generate_text(_ADAPTIVE_FOLLOWUP_SYSTEM_PROMPT, user_prompt).strip()
+    except Exception:
+        return fqs.template_for(question_token)
+
+
+def classify_with_adaptive_followup(
+    case: "ExtractedCase",
+    backend: "LLMBackend",
+    answer_provider: Optional[Callable[[str], str]] = None,
+    max_turns: int = 3,
+    language: Optional[str] = None,
+    case_store: Optional["CaseStore"] = None,
+) -> tuple["ClassificationResult", list[dict[str, str]]]:
+    """Post-classification adaptive follow-up loop driven by the CP prediction set.
+
+    Called AFTER the initial extract_and_classify_with_followup() when the
+    Conformal Prediction gate returns decision == "UNCERTAIN" (prediction_set
+    size 2-3). At each iteration:
+
+      1. Inspect prediction_set on the ClassificationResult.
+         - Empty or decision == "CONFIDENT": done, return result.
+         - Size ≥ 4 (ABSTAIN): done, return result — refer to facility.
+      2. Call followup_question_selector.select_followup_question() to pick
+         the single most discriminating unanswered symptom token.
+         (emergency_first when tiers differ; info_gain otherwise.)
+      3. Call generate_followup_question_text() — Groq LLM produces a
+         natural-language yes/no question from the token.
+      4. Deliver the question via answer_provider; fold the answer back as
+         a new symptom_token if "yes" (present), or note absence if "no".
+      5. Re-classify via rules_engine.classify().
+      6. Repeat up to max_turns times.
+
+    Returns (final ClassificationResult, trail of Q&A dicts).
+    answer_provider is optional: when None the loop is skipped entirely
+    (batch / async callers that cannot block).
+
+    No LLM call for question selection itself — that stays pure-math.
+    The Groq LLM is called once per turn, only to phrase the question.
+    """
+    from app.disease_classifier import get_default_classifier, severity_for_disease
+    from app.schemas import ClassificationLabel
+    from app import followup_question_selector as fqs_local
+
+    result = rules_classify(case)
+    trail: list[dict[str, str]] = []
+
+    if answer_provider is None:
+        if case_store is not None:
+            case_store.record(case, result)
+        return result, trail
+
+    clf = get_default_classifier()
+    rows_by_disease: dict[str, list[list[str]]] = clf._rows_by_disease
+    vocabulary: list[str] = list(clf._kb.vocabulary)
+    severity_map = {d: severity_for_disease(d).value for d in rows_by_disease}
+
+    for turn in range(max_turns):
+        if not result.prediction_set or len(result.prediction_set) <= 1:
+            break  # CONFIDENT or already resolved
+        if len(result.prediction_set) >= 4:
+            break  # ABSTAIN — stop asking
+
+        fq = fqs_local.select_followup_question(
+            prediction_set=result.prediction_set,
+            severity_map={d: severity_map.get(d, "MILD") for d in result.prediction_set},
+            known_tokens=list(case.symptom_tokens),
+            rows_by_disease=rows_by_disease,
+            vocabulary=vocabulary,
+            posteriors=None,
+            loop_count=turn,
+        )
+        if fq is None:
+            break  # no discriminating question available
+
+        question_text = generate_followup_question_text(
+            fq.symptom_token,
+            result.prediction_set,
+            {d: severity_map.get(d, "MILD") for d in result.prediction_set},
+            backend,
+            language=language,
+        )
+
+        answer = answer_provider(question_text)
+        trail.append({"question": question_text, "answer": answer, "token": fq.symptom_token})
+
+        answer_lower = answer.lower().strip()
+        if answer_lower in ("yes", "y", "1", "true", "haan", "हाँ", "ha"):
+            if fq.symptom_token not in case.symptom_tokens:
+                case = case.model_copy(
+                    update={"symptom_tokens": case.symptom_tokens + [fq.symptom_token]}
+                )
+        # Note: a "no" answer is informative too — the absence of a symptom
+        # is naturally handled by NB: not including the token means P(token|disease)
+        # does not boost that disease, so the relative ranking shifts.
+
+        result = rules_classify(case)
+
+    if case_store is not None:
+        case_store.record(case, result)
+    return result, trail

@@ -1,0 +1,25 @@
+{
+  "cm": {
+    "EMERGENCY": {
+      "EMERGENCY": 34,
+      "URGENT": 0,
+      "NON_URGENT": 0
+    },
+    "URGENT": {
+      "EMERGENCY": 0,
+      "URGENT": 32,
+      "NON_URGENT": 1
+    },
+    "NON_URGENT": {
+      "EMERGENCY": 0,
+      "URGENT": 0,
+      "NON_URGENT": 33
+    }
+  },
+  "binary": {
+    "TP": 34,
+    "FP": 0,
+    "FN": 0,
+    "TN": 66
+  }
+}

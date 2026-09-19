@@ -1,0 +1,1147 @@
+{
+  "results_log": [
+    {
+      "true_disease": "Arthritis",
+      "true_sev": "MODERATE",
+      "pred_disease": "Arthritis",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Arthritis"
+      ]
+    },
+    {
+      "true_disease": "Drug Reaction",
+      "true_sev": "MODERATE",
+      "pred_disease": "Drug Reaction",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Drug Reaction"
+      ]
+    },
+    {
+      "true_disease": "(vertigo) Paroymsal  Positional Vertigo",
+      "true_sev": "MODERATE",
+      "pred_disease": "(vertigo) Paroymsal  Positional Vertigo",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "(vertigo) Paroymsal  Positional Vertigo"
+      ]
+    },
+    {
+      "true_disease": "Alcoholic hepatitis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Alcoholic hepatitis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Alcoholic hepatitis"
+      ]
+    },
+    {
+      "true_disease": "Diabetes",
+      "true_sev": "MODERATE",
+      "pred_disease": "Diabetes",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Diabetes"
+      ]
+    },
+    {
+      "true_disease": "Tuberculosis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Tuberculosis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Tuberculosis"
+      ]
+    },
+    {
+      "true_disease": "Hyperthyroidism",
+      "true_sev": "MODERATE",
+      "pred_disease": "Hyperthyroidism",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hyperthyroidism"
+      ]
+    },
+    {
+      "true_disease": "Urinary tract infection",
+      "true_sev": "MODERATE",
+      "pred_disease": "Urinary tract infection",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Urinary tract infection"
+      ]
+    },
+    {
+      "true_disease": "Heart attack",
+      "true_sev": "EMERGENCY",
+      "pred_disease": "Tuberculosis",
+      "pred_sev": "SEVERE",
+      "decision": "UNCERTAIN",
+      "set_size": 2,
+      "prediction_set": [
+        "Tuberculosis",
+        "Heart attack"
+      ]
+    },
+    {
+      "true_disease": "Drug Reaction",
+      "true_sev": "MODERATE",
+      "pred_disease": "Drug Reaction",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Drug Reaction"
+      ]
+    },
+    {
+      "true_disease": "Cervical spondylosis",
+      "true_sev": "MODERATE",
+      "pred_disease": "Cervical spondylosis",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Cervical spondylosis"
+      ]
+    },
+    {
+      "true_disease": "Chicken pox",
+      "true_sev": "MODERATE",
+      "pred_disease": "Chicken pox",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Chicken pox"
+      ]
+    },
+    {
+      "true_disease": "Allergy",
+      "true_sev": "MILD",
+      "pred_disease": "Allergy",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Allergy"
+      ]
+    },
+    {
+      "true_disease": "Psoriasis",
+      "true_sev": "MILD",
+      "pred_disease": "Psoriasis",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Psoriasis"
+      ]
+    },
+    {
+      "true_disease": "(vertigo) Paroymsal  Positional Vertigo",
+      "true_sev": "MODERATE",
+      "pred_disease": "(vertigo) Paroymsal  Positional Vertigo",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "(vertigo) Paroymsal  Positional Vertigo"
+      ]
+    },
+    {
+      "true_disease": "Acne",
+      "true_sev": "MILD",
+      "pred_disease": "Acne",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Acne"
+      ]
+    },
+    {
+      "true_disease": "Bronchial Asthma",
+      "true_sev": "MODERATE",
+      "pred_disease": "Bronchial Asthma",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Bronchial Asthma"
+      ]
+    },
+    {
+      "true_disease": "Heart attack",
+      "true_sev": "EMERGENCY",
+      "pred_disease": "Tuberculosis",
+      "pred_sev": "SEVERE",
+      "decision": "UNCERTAIN",
+      "set_size": 2,
+      "prediction_set": [
+        "Tuberculosis",
+        "Heart attack"
+      ]
+    },
+    {
+      "true_disease": "Common Cold",
+      "true_sev": "MILD",
+      "pred_disease": "Common Cold",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Common Cold"
+      ]
+    },
+    {
+      "true_disease": "GERD",
+      "true_sev": "MODERATE",
+      "pred_disease": "GERD",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "GERD"
+      ]
+    },
+    {
+      "true_disease": "Drug Reaction",
+      "true_sev": "MODERATE",
+      "pred_disease": "Drug Reaction",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Drug Reaction"
+      ]
+    },
+    {
+      "true_disease": "Hepatitis D",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hepatitis E",
+      "pred_sev": "SEVERE",
+      "decision": "UNCERTAIN",
+      "set_size": 2,
+      "prediction_set": [
+        "Hepatitis E",
+        "Hepatitis D"
+      ]
+    },
+    {
+      "true_disease": "Malaria",
+      "true_sev": "MODERATE",
+      "pred_disease": "Malaria",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Malaria"
+      ]
+    },
+    {
+      "true_disease": "Peptic ulcer diseae",
+      "true_sev": "SEVERE",
+      "pred_disease": "Peptic ulcer diseae",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Peptic ulcer diseae"
+      ]
+    },
+    {
+      "true_disease": "Gastroenteritis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Gastroenteritis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Gastroenteritis"
+      ]
+    },
+    {
+      "true_disease": "Hepatitis D",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hepatitis E",
+      "pred_sev": "SEVERE",
+      "decision": "UNCERTAIN",
+      "set_size": 2,
+      "prediction_set": [
+        "Hepatitis E",
+        "Hepatitis D"
+      ]
+    },
+    {
+      "true_disease": "Gastroenteritis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Gastroenteritis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Gastroenteritis"
+      ]
+    },
+    {
+      "true_disease": "Pneumonia",
+      "true_sev": "SEVERE",
+      "pred_disease": "Pneumonia",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Pneumonia"
+      ]
+    },
+    {
+      "true_disease": "Allergy",
+      "true_sev": "MILD",
+      "pred_disease": "Allergy",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Allergy"
+      ]
+    },
+    {
+      "true_disease": "Fungal infection",
+      "true_sev": "MILD",
+      "pred_disease": "Fungal infection",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Fungal infection"
+      ]
+    },
+    {
+      "true_disease": "Hyperthyroidism",
+      "true_sev": "MODERATE",
+      "pred_disease": "Hyperthyroidism",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hyperthyroidism"
+      ]
+    },
+    {
+      "true_disease": "Tuberculosis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Tuberculosis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Tuberculosis"
+      ]
+    },
+    {
+      "true_disease": "Hypertension",
+      "true_sev": "MODERATE",
+      "pred_disease": "Hypertension",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hypertension"
+      ]
+    },
+    {
+      "true_disease": "Fungal infection",
+      "true_sev": "MILD",
+      "pred_disease": "Fungal infection",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Fungal infection"
+      ]
+    },
+    {
+      "true_disease": "(vertigo) Paroymsal  Positional Vertigo",
+      "true_sev": "MODERATE",
+      "pred_disease": "(vertigo) Paroymsal  Positional Vertigo",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "(vertigo) Paroymsal  Positional Vertigo"
+      ]
+    },
+    {
+      "true_disease": "Varicose veins",
+      "true_sev": "MODERATE",
+      "pred_disease": "Varicose veins",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Varicose veins"
+      ]
+    },
+    {
+      "true_disease": "Hypertension",
+      "true_sev": "MODERATE",
+      "pred_disease": "Hypertension",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hypertension"
+      ]
+    },
+    {
+      "true_disease": "Migraine",
+      "true_sev": "MODERATE",
+      "pred_disease": "Migraine",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Migraine"
+      ]
+    },
+    {
+      "true_disease": "Dimorphic hemmorhoids(piles)",
+      "true_sev": "MODERATE",
+      "pred_disease": "Dimorphic hemmorhoids(piles)",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Dimorphic hemmorhoids(piles)"
+      ]
+    },
+    {
+      "true_disease": "Chicken pox",
+      "true_sev": "MODERATE",
+      "pred_disease": "Chicken pox",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Chicken pox"
+      ]
+    },
+    {
+      "true_disease": "Migraine",
+      "true_sev": "MODERATE",
+      "pred_disease": "Migraine",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Migraine"
+      ]
+    },
+    {
+      "true_disease": "Diabetes",
+      "true_sev": "MODERATE",
+      "pred_disease": "Diabetes",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Diabetes"
+      ]
+    },
+    {
+      "true_disease": "Hepatitis B",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hepatitis B",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hepatitis B"
+      ]
+    },
+    {
+      "true_disease": "Alcoholic hepatitis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Alcoholic hepatitis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Alcoholic hepatitis"
+      ]
+    },
+    {
+      "true_disease": "Paralysis (brain hemorrhage)",
+      "true_sev": "EMERGENCY",
+      "pred_disease": "Paralysis (brain hemorrhage)",
+      "pred_sev": "EMERGENCY",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Paralysis (brain hemorrhage)"
+      ]
+    },
+    {
+      "true_disease": "Urinary tract infection",
+      "true_sev": "MODERATE",
+      "pred_disease": "Urinary tract infection",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Urinary tract infection"
+      ]
+    },
+    {
+      "true_disease": "Osteoarthristis",
+      "true_sev": "MODERATE",
+      "pred_disease": "Osteoarthristis",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Osteoarthristis"
+      ]
+    },
+    {
+      "true_disease": "AIDS",
+      "true_sev": "SEVERE",
+      "pred_disease": "AIDS",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "AIDS"
+      ]
+    },
+    {
+      "true_disease": "AIDS",
+      "true_sev": "SEVERE",
+      "pred_disease": "AIDS",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "AIDS"
+      ]
+    },
+    {
+      "true_disease": "Hypoglycemia",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hypoglycemia",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hypoglycemia"
+      ]
+    },
+    {
+      "true_disease": "Common Cold",
+      "true_sev": "MILD",
+      "pred_disease": "Common Cold",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Common Cold"
+      ]
+    },
+    {
+      "true_disease": "Jaundice",
+      "true_sev": "SEVERE",
+      "pred_disease": "Jaundice",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Jaundice"
+      ]
+    },
+    {
+      "true_disease": "Allergy",
+      "true_sev": "MILD",
+      "pred_disease": "Allergy",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Allergy"
+      ]
+    },
+    {
+      "true_disease": "Cervical spondylosis",
+      "true_sev": "MODERATE",
+      "pred_disease": "Cervical spondylosis",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Cervical spondylosis"
+      ]
+    },
+    {
+      "true_disease": "Chicken pox",
+      "true_sev": "MODERATE",
+      "pred_disease": "Chicken pox",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Chicken pox"
+      ]
+    },
+    {
+      "true_disease": "Hepatitis B",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hepatitis B",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hepatitis B"
+      ]
+    },
+    {
+      "true_disease": "Hypothyroidism",
+      "true_sev": "MODERATE",
+      "pred_disease": "Hypothyroidism",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hypothyroidism"
+      ]
+    },
+    {
+      "true_disease": "Diabetes",
+      "true_sev": "MODERATE",
+      "pred_disease": "Diabetes",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Diabetes"
+      ]
+    },
+    {
+      "true_disease": "Hepatitis E",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hepatitis E",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hepatitis E"
+      ]
+    },
+    {
+      "true_disease": "Arthritis",
+      "true_sev": "MODERATE",
+      "pred_disease": "Arthritis",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Arthritis"
+      ]
+    },
+    {
+      "true_disease": "Jaundice",
+      "true_sev": "SEVERE",
+      "pred_disease": "Jaundice",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Jaundice"
+      ]
+    },
+    {
+      "true_disease": "Dengue",
+      "true_sev": "SEVERE",
+      "pred_disease": "Dengue",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Dengue"
+      ]
+    },
+    {
+      "true_disease": "Fungal infection",
+      "true_sev": "MILD",
+      "pred_disease": "Fungal infection",
+      "pred_sev": "MILD",
+      "decision": "UNCERTAIN",
+      "set_size": 2,
+      "prediction_set": [
+        "Fungal infection",
+        "Chicken pox"
+      ]
+    },
+    {
+      "true_disease": "Varicose veins",
+      "true_sev": "MODERATE",
+      "pred_disease": "Varicose veins",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Varicose veins"
+      ]
+    },
+    {
+      "true_disease": "Arthritis",
+      "true_sev": "MODERATE",
+      "pred_disease": "Arthritis",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Arthritis"
+      ]
+    },
+    {
+      "true_disease": "Dengue",
+      "true_sev": "SEVERE",
+      "pred_disease": "Dengue",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Dengue"
+      ]
+    },
+    {
+      "true_disease": "Bronchial Asthma",
+      "true_sev": "MODERATE",
+      "pred_disease": "Bronchial Asthma",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Bronchial Asthma"
+      ]
+    },
+    {
+      "true_disease": "Hepatitis C",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hepatitis C",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hepatitis C"
+      ]
+    },
+    {
+      "true_disease": "GERD",
+      "true_sev": "MODERATE",
+      "pred_disease": "GERD",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "GERD"
+      ]
+    },
+    {
+      "true_disease": "Hepatitis E",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hepatitis E",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hepatitis E"
+      ]
+    },
+    {
+      "true_disease": "Impetigo",
+      "true_sev": "MODERATE",
+      "pred_disease": "Impetigo",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Impetigo"
+      ]
+    },
+    {
+      "true_disease": "Typhoid",
+      "true_sev": "SEVERE",
+      "pred_disease": "Typhoid",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Typhoid"
+      ]
+    },
+    {
+      "true_disease": "Impetigo",
+      "true_sev": "MODERATE",
+      "pred_disease": "Impetigo",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Impetigo"
+      ]
+    },
+    {
+      "true_disease": "Chronic cholestasis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Chronic cholestasis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Chronic cholestasis"
+      ]
+    },
+    {
+      "true_disease": "Acne",
+      "true_sev": "MILD",
+      "pred_disease": "Acne",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Acne"
+      ]
+    },
+    {
+      "true_disease": "hepatitis A",
+      "true_sev": "SEVERE",
+      "pred_disease": "hepatitis A",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "hepatitis A"
+      ]
+    },
+    {
+      "true_disease": "Gastroenteritis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Gastroenteritis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Gastroenteritis"
+      ]
+    },
+    {
+      "true_disease": "Dimorphic hemmorhoids(piles)",
+      "true_sev": "MODERATE",
+      "pred_disease": "Dimorphic hemmorhoids(piles)",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Dimorphic hemmorhoids(piles)"
+      ]
+    },
+    {
+      "true_disease": "AIDS",
+      "true_sev": "SEVERE",
+      "pred_disease": "AIDS",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "AIDS"
+      ]
+    },
+    {
+      "true_disease": "Chronic cholestasis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Chronic cholestasis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Chronic cholestasis"
+      ]
+    },
+    {
+      "true_disease": "Acne",
+      "true_sev": "MILD",
+      "pred_disease": "Acne",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Acne"
+      ]
+    },
+    {
+      "true_disease": "Dimorphic hemmorhoids(piles)",
+      "true_sev": "MODERATE",
+      "pred_disease": "Dimorphic hemmorhoids(piles)",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Dimorphic hemmorhoids(piles)"
+      ]
+    },
+    {
+      "true_disease": "Chronic cholestasis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Chronic cholestasis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Chronic cholestasis"
+      ]
+    },
+    {
+      "true_disease": "Hypothyroidism",
+      "true_sev": "MODERATE",
+      "pred_disease": "Hypothyroidism",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hypothyroidism"
+      ]
+    },
+    {
+      "true_disease": "Typhoid",
+      "true_sev": "SEVERE",
+      "pred_disease": "Typhoid",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Typhoid"
+      ]
+    },
+    {
+      "true_disease": "hepatitis A",
+      "true_sev": "SEVERE",
+      "pred_disease": "hepatitis A",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "hepatitis A"
+      ]
+    },
+    {
+      "true_disease": "GERD",
+      "true_sev": "MODERATE",
+      "pred_disease": "GERD",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "GERD"
+      ]
+    },
+    {
+      "true_disease": "Hepatitis C",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hepatitis C",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hepatitis C"
+      ]
+    },
+    {
+      "true_disease": "Bronchial Asthma",
+      "true_sev": "MODERATE",
+      "pred_disease": "Bronchial Asthma",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Bronchial Asthma"
+      ]
+    },
+    {
+      "true_disease": "Common Cold",
+      "true_sev": "MILD",
+      "pred_disease": "Common Cold",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Common Cold"
+      ]
+    },
+    {
+      "true_disease": "Hypoglycemia",
+      "true_sev": "SEVERE",
+      "pred_disease": "Hypoglycemia",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Hypoglycemia"
+      ]
+    },
+    {
+      "true_disease": "Cervical spondylosis",
+      "true_sev": "MODERATE",
+      "pred_disease": "Cervical spondylosis",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Cervical spondylosis"
+      ]
+    },
+    {
+      "true_disease": "Osteoarthristis",
+      "true_sev": "MODERATE",
+      "pred_disease": "Osteoarthristis",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Osteoarthristis"
+      ]
+    },
+    {
+      "true_disease": "Malaria",
+      "true_sev": "MODERATE",
+      "pred_disease": "Malaria",
+      "pred_sev": "MODERATE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Malaria"
+      ]
+    },
+    {
+      "true_disease": "Alcoholic hepatitis",
+      "true_sev": "SEVERE",
+      "pred_disease": "Alcoholic hepatitis",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Alcoholic hepatitis"
+      ]
+    },
+    {
+      "true_disease": "Paralysis (brain hemorrhage)",
+      "true_sev": "EMERGENCY",
+      "pred_disease": "Paralysis (brain hemorrhage)",
+      "pred_sev": "EMERGENCY",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Paralysis (brain hemorrhage)"
+      ]
+    },
+    {
+      "true_disease": "Pneumonia",
+      "true_sev": "SEVERE",
+      "pred_disease": "Pneumonia",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Pneumonia"
+      ]
+    },
+    {
+      "true_disease": "Psoriasis",
+      "true_sev": "MILD",
+      "pred_disease": "Psoriasis",
+      "pred_sev": "MILD",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Psoriasis"
+      ]
+    },
+    {
+      "true_disease": "Dengue",
+      "true_sev": "SEVERE",
+      "pred_disease": "Dengue",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Dengue"
+      ]
+    },
+    {
+      "true_disease": "Peptic ulcer diseae",
+      "true_sev": "SEVERE",
+      "pred_disease": "Peptic ulcer diseae",
+      "pred_sev": "SEVERE",
+      "decision": "CONFIDENT",
+      "set_size": 1,
+      "prediction_set": [
+        "Peptic ulcer diseae"
+      ]
+    }
+  ],
+  "cm": {
+    "EMERGENCY": {
+      "EMERGENCY": 2,
+      "SEVERE": 2,
+      "MODERATE": 0,
+      "MILD": 0
+    },
+    "SEVERE": {
+      "EMERGENCY": 0,
+      "SEVERE": 37,
+      "MODERATE": 0,
+      "MILD": 0
+    },
+    "MODERATE": {
+      "EMERGENCY": 0,
+      "SEVERE": 0,
+      "MODERATE": 45,
+      "MILD": 0
+    },
+    "MILD": {
+      "EMERGENCY": 0,
+      "SEVERE": 0,
+      "MODERATE": 0,
+      "MILD": 14
+    }
+  },
+  "correct_disease": 96,
+  "in_pred_set": 100,
+  "abstained": 0,
+  "uncertain": 5,
+  "confident_correct": 95,
+  "confident_total": 95,
+  "binary": {
+    "TP": 2,
+    "FP": 0,
+    "FN": 2,
+    "TN": 96
+  }
+}

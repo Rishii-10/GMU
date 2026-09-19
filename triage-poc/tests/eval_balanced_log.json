@@ -1,0 +1,1127 @@
+[
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "AIDS",
+    "true_band": "URGENT",
+    "pred_disease": "AIDS",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "AIDS"
+    ]
+  },
+  {
+    "true_disease": "Diabetes",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Diabetes",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Diabetes"
+    ]
+  },
+  {
+    "true_disease": "Hypoglycemia",
+    "true_band": "URGENT",
+    "pred_disease": "Hypoglycemia",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hypoglycemia"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Hepatitis D",
+    "true_band": "URGENT",
+    "pred_disease": "Hepatitis E",
+    "pred_band": "URGENT",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Hepatitis E",
+      "Hepatitis D"
+    ]
+  },
+  {
+    "true_disease": "AIDS",
+    "true_band": "URGENT",
+    "pred_disease": "AIDS",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "AIDS"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Hepatitis C",
+    "true_band": "URGENT",
+    "pred_disease": "Hepatitis C",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hepatitis C"
+    ]
+  },
+  {
+    "true_disease": "Peptic ulcer diseae",
+    "true_band": "URGENT",
+    "pred_disease": "Peptic ulcer diseae",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Peptic ulcer diseae"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Bronchial Asthma",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Bronchial Asthma",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Bronchial Asthma"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Jaundice",
+    "true_band": "URGENT",
+    "pred_disease": "Jaundice",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Jaundice"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Bronchial Asthma",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Bronchial Asthma",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Bronchial Asthma"
+    ]
+  },
+  {
+    "true_disease": "Psoriasis",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Psoriasis",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Psoriasis"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 3,
+    "prediction_set": [
+      "Heart attack",
+      "Pneumonia",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Drug Reaction",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Drug Reaction",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Drug Reaction"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Jaundice",
+    "true_band": "URGENT",
+    "pred_disease": "Jaundice",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Jaundice"
+    ]
+  },
+  {
+    "true_disease": "Hepatitis D",
+    "true_band": "URGENT",
+    "pred_disease": "Hepatitis E",
+    "pred_band": "URGENT",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Hepatitis E",
+      "Hepatitis D"
+    ]
+  },
+  {
+    "true_disease": "Arthritis",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Arthritis",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Arthritis"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Tuberculosis",
+    "true_band": "URGENT",
+    "pred_disease": "Tuberculosis",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Alcoholic hepatitis",
+    "true_band": "URGENT",
+    "pred_disease": "Alcoholic hepatitis",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Alcoholic hepatitis"
+    ]
+  },
+  {
+    "true_disease": "Drug Reaction",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Drug Reaction",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Drug Reaction"
+    ]
+  },
+  {
+    "true_disease": "Jaundice",
+    "true_band": "URGENT",
+    "pred_disease": "Jaundice",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Jaundice"
+    ]
+  },
+  {
+    "true_disease": "Typhoid",
+    "true_band": "URGENT",
+    "pred_disease": "Typhoid",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Typhoid"
+    ]
+  },
+  {
+    "true_disease": "hepatitis A",
+    "true_band": "URGENT",
+    "pred_disease": "hepatitis A",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "hepatitis A"
+    ]
+  },
+  {
+    "true_disease": "Allergy",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Allergy",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Allergy"
+    ]
+  },
+  {
+    "true_disease": "Typhoid",
+    "true_band": "URGENT",
+    "pred_disease": "Typhoid",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Typhoid"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Chronic cholestasis",
+    "true_band": "URGENT",
+    "pred_disease": "ABSTAIN",
+    "pred_band": "NON_URGENT",
+    "decision": "ABSTAIN",
+    "set_size": 4,
+    "prediction_set": [
+      "Hepatitis E",
+      "hepatitis A",
+      "Chronic cholestasis",
+      "Hepatitis D"
+    ]
+  },
+  {
+    "true_disease": "Impetigo",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Impetigo",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Impetigo"
+    ]
+  },
+  {
+    "true_disease": "Urinary tract infection",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Urinary tract infection",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Urinary tract infection"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Hepatitis C",
+    "true_band": "URGENT",
+    "pred_disease": "Hepatitis C",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hepatitis C"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Malaria",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Malaria",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Malaria"
+    ]
+  },
+  {
+    "true_disease": "Osteoarthristis",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Osteoarthristis",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Osteoarthristis"
+    ]
+  },
+  {
+    "true_disease": "Hepatitis C",
+    "true_band": "URGENT",
+    "pred_disease": "Hepatitis C",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hepatitis C"
+    ]
+  },
+  {
+    "true_disease": "Pneumonia",
+    "true_band": "URGENT",
+    "pred_disease": "Pneumonia",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Pneumonia"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Allergy",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Allergy",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Allergy"
+    ]
+  },
+  {
+    "true_disease": "AIDS",
+    "true_band": "URGENT",
+    "pred_disease": "AIDS",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "AIDS"
+    ]
+  },
+  {
+    "true_disease": "(vertigo) Paroymsal  Positional Vertigo",
+    "true_band": "NON_URGENT",
+    "pred_disease": "(vertigo) Paroymsal  Positional Vertigo",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "(vertigo) Paroymsal  Positional Vertigo"
+    ]
+  },
+  {
+    "true_disease": "Dengue",
+    "true_band": "URGENT",
+    "pred_disease": "Dengue",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Dengue"
+    ]
+  },
+  {
+    "true_disease": "Malaria",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Malaria",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Malaria"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Allergy",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Allergy",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Allergy"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Cervical spondylosis",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Cervical spondylosis",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Cervical spondylosis"
+    ]
+  },
+  {
+    "true_disease": "Jaundice",
+    "true_band": "URGENT",
+    "pred_disease": "Jaundice",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Jaundice"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Cervical spondylosis",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Cervical spondylosis",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Cervical spondylosis"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Drug Reaction",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Drug Reaction",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Drug Reaction"
+    ]
+  },
+  {
+    "true_disease": "(vertigo) Paroymsal  Positional Vertigo",
+    "true_band": "NON_URGENT",
+    "pred_disease": "(vertigo) Paroymsal  Positional Vertigo",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "(vertigo) Paroymsal  Positional Vertigo"
+    ]
+  },
+  {
+    "true_disease": "Hypertension",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Hypertension",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hypertension"
+    ]
+  },
+  {
+    "true_disease": "Hepatitis E",
+    "true_band": "URGENT",
+    "pred_disease": "Hepatitis E",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hepatitis E"
+    ]
+  },
+  {
+    "true_disease": "Urinary tract infection",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Urinary tract infection",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Urinary tract infection"
+    ]
+  },
+  {
+    "true_disease": "Typhoid",
+    "true_band": "URGENT",
+    "pred_disease": "Typhoid",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Typhoid"
+    ]
+  },
+  {
+    "true_disease": "Arthritis",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Arthritis",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Arthritis"
+    ]
+  },
+  {
+    "true_disease": "Psoriasis",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Psoriasis",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Psoriasis"
+    ]
+  },
+  {
+    "true_disease": "Common Cold",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Common Cold",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Common Cold"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Hepatitis B",
+    "true_band": "URGENT",
+    "pred_disease": "Hepatitis B",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hepatitis B"
+    ]
+  },
+  {
+    "true_disease": "Tuberculosis",
+    "true_band": "URGENT",
+    "pred_disease": "Tuberculosis",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Chronic cholestasis",
+    "true_band": "URGENT",
+    "pred_disease": "Chronic cholestasis",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Chronic cholestasis"
+    ]
+  },
+  {
+    "true_disease": "Arthritis",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Arthritis",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Arthritis"
+    ]
+  },
+  {
+    "true_disease": "Malaria",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Malaria",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Malaria"
+    ]
+  },
+  {
+    "true_disease": "Malaria",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Malaria",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Malaria"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "Paralysis (brain hemorrhage)",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Paralysis (brain hemorrhage)",
+    "pred_band": "EMERGENCY",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Paralysis (brain hemorrhage)"
+    ]
+  },
+  {
+    "true_disease": "GERD",
+    "true_band": "NON_URGENT",
+    "pred_disease": "GERD",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "GERD"
+    ]
+  },
+  {
+    "true_disease": "Gastroenteritis",
+    "true_band": "URGENT",
+    "pred_disease": "Gastroenteritis",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Gastroenteritis"
+    ]
+  },
+  {
+    "true_disease": "Chronic cholestasis",
+    "true_band": "URGENT",
+    "pred_disease": "Chronic cholestasis",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Chronic cholestasis"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "Dengue",
+    "true_band": "URGENT",
+    "pred_disease": "Dengue",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Dengue"
+    ]
+  },
+  {
+    "true_disease": "Psoriasis",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Psoriasis",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Psoriasis"
+    ]
+  },
+  {
+    "true_disease": "Heart attack",
+    "true_band": "EMERGENCY",
+    "pred_disease": "Heart attack",
+    "pred_band": "EMERGENCY",
+    "decision": "UNCERTAIN",
+    "set_size": 2,
+    "prediction_set": [
+      "Heart attack",
+      "Tuberculosis"
+    ]
+  },
+  {
+    "true_disease": "(vertigo) Paroymsal  Positional Vertigo",
+    "true_band": "NON_URGENT",
+    "pred_disease": "(vertigo) Paroymsal  Positional Vertigo",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "(vertigo) Paroymsal  Positional Vertigo"
+    ]
+  },
+  {
+    "true_disease": "Hypertension",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Hypertension",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hypertension"
+    ]
+  },
+  {
+    "true_disease": "Hyperthyroidism",
+    "true_band": "NON_URGENT",
+    "pred_disease": "Hyperthyroidism",
+    "pred_band": "NON_URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hyperthyroidism"
+    ]
+  },
+  {
+    "true_disease": "Hepatitis B",
+    "true_band": "URGENT",
+    "pred_disease": "Hepatitis B",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Hepatitis B"
+    ]
+  },
+  {
+    "true_disease": "Jaundice",
+    "true_band": "URGENT",
+    "pred_disease": "Jaundice",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Jaundice"
+    ]
+  },
+  {
+    "true_disease": "Typhoid",
+    "true_band": "URGENT",
+    "pred_disease": "Typhoid",
+    "pred_band": "URGENT",
+    "decision": "CONFIDENT",
+    "set_size": 1,
+    "prediction_set": [
+      "Typhoid"
+    ]
+  }
+]
