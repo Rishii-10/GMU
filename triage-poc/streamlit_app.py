@@ -30,7 +30,10 @@ from app.agent1_extraction import (
     OllamaBackend,
     extract_and_classify,
     question_for_incomplete_result,
+    generate_followup_question_text,
 )
+from app.disease_classifier import get_default_classifier, severity_for_disease
+from app import followup_question_selector as fqs
 from app.routing.demo_facilities import VILLAGES, build_demo_facility_db
 from app.routing.report import generate_doctor_report
 from app.routing.router import route, urgency_for_label
@@ -219,6 +222,10 @@ if "history" not in st.session_state:
     st.session_state.history = []
 if "current" not in st.session_state:
     st.session_state.current = None
+# Adaptive follow-up loop state (post-classification CP gate)
+# Keys: case, result, loop_count, trail, pending_question, pending_token
+if "adaptive" not in st.session_state:
+    st.session_state.adaptive = None
 
 if st.session_state.history:
     with st.sidebar.expander(f"Session history ({len(st.session_state.history)})"):
@@ -752,6 +759,104 @@ def render_rule_engine_view(cur: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Adaptive follow-up helpers
+# ---------------------------------------------------------------------------
+def _start_adaptive(case, result, backend) -> None:
+    """Initialise adaptive session state after first classification."""
+    pred_set = result.prediction_set
+    if not pred_set or len(pred_set) >= 4:
+        st.session_state.adaptive = None
+        return
+    clf = get_default_classifier()
+    rows_by_disease = clf._rows_by_disease
+    vocabulary = list(clf._kb.vocabulary)
+    severity_map = {d: severity_for_disease(d).value for d in rows_by_disease}
+    fq = fqs.select_followup_question(
+        prediction_set=pred_set,
+        severity_map={d: severity_map.get(d, "MILD") for d in pred_set},
+        known_tokens=list(case.symptom_tokens),
+        rows_by_disease=rows_by_disease,
+        vocabulary=vocabulary,
+        loop_count=0,
+    )
+    if fq is None:
+        st.session_state.adaptive = None
+        return
+    question_text = generate_followup_question_text(
+        fq.symptom_token, pred_set,
+        {d: severity_map.get(d, "MILD") for d in pred_set},
+        backend, language=case.language,
+    )
+    st.session_state.adaptive = {
+        "case": case, "result": result,
+        "loop_count": 0, "trail": [],
+        "pending_question": question_text,
+        "pending_token": fq.symptom_token,
+        "fq": fq,
+    }
+
+
+def _answer_adaptive(answer_yes: bool, backend) -> None:
+    """Handle a Yes/No answer to the current adaptive follow-up question."""
+    adp = st.session_state.adaptive
+    if adp is None:
+        return
+    from app.rules_engine import classify as rules_classify
+
+    case = adp["case"]
+    token = adp["pending_token"]
+    adp["trail"].append({
+        "question": adp["pending_question"],
+        "answer": "Yes" if answer_yes else "No",
+        "token": token,
+    })
+
+    if answer_yes and token not in case.symptom_tokens:
+        case = case.model_copy(
+            update={"symptom_tokens": case.symptom_tokens + [token]}
+        )
+
+    result = rules_classify(case)
+    adp["case"] = case
+    adp["result"] = result
+    adp["loop_count"] += 1
+    new_loop = adp["loop_count"]
+
+    pred_set = result.prediction_set
+    if not pred_set or len(pred_set) <= 1 or len(pred_set) >= 4 or new_loop >= 3:
+        st.session_state.adaptive = None
+        st.session_state.current = {"case": case, "result": result}
+        return
+
+    clf = get_default_classifier()
+    rows_by_disease = clf._rows_by_disease
+    vocabulary = list(clf._kb.vocabulary)
+    severity_map = {d: severity_for_disease(d).value for d in rows_by_disease}
+    fq = fqs.select_followup_question(
+        prediction_set=pred_set,
+        severity_map={d: severity_map.get(d, "MILD") for d in pred_set},
+        known_tokens=list(case.symptom_tokens),
+        rows_by_disease=rows_by_disease,
+        vocabulary=vocabulary,
+        posteriors=None,
+        loop_count=new_loop,
+    )
+    if fq is None:
+        st.session_state.adaptive = None
+        st.session_state.current = {"case": case, "result": result}
+        return
+    question_text = generate_followup_question_text(
+        fq.symptom_token, pred_set,
+        {d: severity_map.get(d, "MILD") for d in pred_set},
+        backend, language=case.language,
+    )
+    adp["pending_question"] = question_text
+    adp["pending_token"] = fq.symptom_token
+    adp["fq"] = fq
+    st.session_state.current = {"case": case, "result": result}
+
+
+# ---------------------------------------------------------------------------
 # Main flow
 # ---------------------------------------------------------------------------
 if assess_clicked:
@@ -778,6 +883,53 @@ if assess_clicked:
                 }
             )
             st.session_state.current = {"case": case, "result": result}
+            st.session_state.adaptive = None
+            _start_adaptive(case, result, backend)
+
+# Adaptive follow-up UI — shown between the Assess button and the result tabs
+if st.session_state.adaptive is not None:
+    adp = st.session_state.adaptive
+    fq_obj = adp["fq"]
+    pred_set = adp["result"].prediction_set
+    urgency = fq_obj.severity_urgency
+
+    if urgency == "EMERGENCY_PRIORITY":
+        q_border = "#8A0000"
+        q_bg = "#FDECEC"
+        q_label = "🚨 Clarifying question — possible emergency"
+    else:
+        q_border = "#1E5FA8"
+        q_bg = "#F3F7FC"
+        q_label = f"🔍 Follow-up question (turn {adp['loop_count']+1}/3)"
+
+    st.markdown(
+        f'<div style="border-left:6px solid {q_border};background:{q_bg};'
+        f'padding:1rem 1.2rem;border-radius:8px;margin-bottom:0.8rem;">'
+        f'<b>{q_label}</b><br>'
+        f'Still deciding between: <b>{", ".join(pred_set)}</b><br><br>'
+        f'<span style="font-size:18px;">{adp["pending_question"]}</span>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+    col_y, col_n, col_skip = st.columns([1, 1, 2])
+    backend_ref = OllamaBackend()
+    with col_y:
+        if st.button("✅ Yes", key=f"adp_yes_{adp['loop_count']}", use_container_width=True):
+            _answer_adaptive(True, backend_ref)
+            st.rerun()
+    with col_n:
+        if st.button("❌ No", key=f"adp_no_{adp['loop_count']}", use_container_width=True):
+            _answer_adaptive(False, backend_ref)
+            st.rerun()
+    with col_skip:
+        if st.button("Skip (not sure)", key=f"adp_skip_{adp['loop_count']}", use_container_width=True):
+            _answer_adaptive(False, backend_ref)
+            st.rerun()
+
+    if adp["trail"]:
+        with st.expander("Follow-up Q&A so far"):
+            for t in adp["trail"]:
+                st.markdown(f"- **Q:** {t['question']}  **A:** `{t['answer']}` *(token: {t['token']})*")
 
 if st.session_state.current is not None:
     backend = OllamaBackend()

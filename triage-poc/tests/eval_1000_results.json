@@ -1,0 +1,46 @@
+{
+  "cm": {
+    "EMERGENCY": {
+      "EMERGENCY": 334,
+      "URGENT": 0,
+      "NON_URGENT": 0
+    },
+    "URGENT": {
+      "EMERGENCY": 0,
+      "URGENT": 332,
+      "NON_URGENT": 1
+    },
+    "NON_URGENT": {
+      "EMERGENCY": 0,
+      "URGENT": 0,
+      "NON_URGENT": 333
+    }
+  },
+  "binary": {
+    "TP": 334,
+    "FP": 0,
+    "FN": 0,
+    "TN": 666
+  },
+  "metrics": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  },
+  "band_accuracy": {
+    "EMERGENCY": 1.0,
+    "URGENT": 0.997,
+    "NON_URGENT": 1.0
+  },
+  "decision_counts": {
+    "CONFIDENT": 793,
+    "UNCERTAIN": 206,
+    "ABSTAIN": 1
+  },
+  "n": 1000,
+  "targets": {
+    "EMERGENCY": 334,
+    "URGENT": 333,
+    "NON_URGENT": 333
+  }
+}

@@ -308,6 +308,17 @@ class ClassificationResult(BaseModel):
         description="True when the reject-option check fired and forced INCOMPLETE_ASSESSMENT.",
     )
 
+    # Conformal Prediction prediction set (populated on the adult/dataset path when
+    # CP gate returns set_size > 1 — i.e. the engine is uncertain between multiple
+    # diseases). Non-empty here means "adaptive follow-up loop should ask a
+    # discriminating question." Empty means either confident (size=1) or fully
+    # abstained (size≥4, refer up without further questioning).
+    prediction_set: list[str] = Field(
+        default_factory=list,
+        description="CP prediction set: diseases the true diagnosis is formally "
+                    "guaranteed to be in (≥95% coverage). Size>1 triggers follow-up.",
+    )
+
     # Stage 2 emergency scoring (populated when a confident diagnosis is reached)
     emergency_result: Optional[EmergencyResult] = Field(
         default=None,

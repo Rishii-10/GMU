@@ -6,6 +6,15 @@ a dataset-driven disease classifier alongside the pediatric IMNCI engine.
 Agent 2 (DBSCAN outbreak surveillance) is a separate, out-of-scope
 side-track per project decision -- not built.
 
+## Documentation
+
+| Document | Location | What it covers |
+|---|---|---|
+| **Rule Engine Design (Final)** | [`triage-poc/rule_engine_design_final.md`](triage-poc/rule_engine_design_final.md) | Complete rule engine design: CP gate, AHP scorer, adaptive follow-up, models, validation results (1,000-case), fixes F1–F4, Mermaid diagrams, known limitations |
+| Architecture Overview | [`ARCHITECTURE.md`](ARCHITECTURE.md) | System-wide architecture |
+| Agent 1 README | [`AGENT1_README.md`](AGENT1_README.md) | LLM extraction layer |
+| Rule Engine Design (proposal) | [`RULE_ENGINE_DESIGN.md`](RULE_ENGINE_DESIGN.md) | Earlier design proposal (pre-implementation) |
+
 ## System Architecture
 
 Everything below is one process, in-memory, no message queue or network

@@ -269,17 +269,19 @@ def _attach_dataset_context(result: ClassificationResult, case: ExtractedCase) -
 def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
     """Primary classification path for adult/elderly/out-of-band-age cases.
 
-    Implements the two-stage rule engine (Rule engine final.md):
+    Implements the two-stage rule engine:
 
-    Stage 1 — Probabilistic diagnosis with calibration + abstention:
-      - Bernoulli Naive Bayes posteriors over 41 diseases.
-      - Isotonic calibration (Niculescu-Mizil & Caruana, ICML 2005).
-      - Reject-option abstention: answer only when calibrated_confidence >= τ
-        (Youden's J threshold) AND gap_to_second >= δ (risk-coverage threshold).
-        Chow (1970); Geifman & El-Yaniv (2017).
-      - If abstain → INCOMPLETE_ASSESSMENT; coordination layer triggers follow-up.
+    Stage 1 — Split Conformal Prediction gate (Vovk 2005; Angelopoulos & Bates 2021):
+      - Bernoulli Naive Bayes posteriors over 41 diseases, isotonic-calibrated
+        (Niculescu-Mizil & Caruana, ICML 2005).
+      - Nonconformity score s(d) = 1 − P̂_calibrated(d | symptoms).
+      - CP prediction set at α=0.05 carries a formal ≥95% coverage guarantee
+        (true disease is in the set) under exchangeability.
+      - set_size=1 → CONFIDENT; 2-3 → UNCERTAIN (adaptive follow-up); ≥4 → ABSTAIN.
+      - UNCERTAIN path uses worst-case (maximum) severity across the prediction
+        set so the CHW never under-triages while the diagnosis is still open.
 
-    Stage 2 — AHP-weighted emergency scoring (only when Stage 1 answers):
+    Stage 2 — AHP-weighted emergency scoring (CONFIDENT path only):
       - Six-attribute acuity score (Saaty 1980 AHP, CR=0.0205).
       - WHO IMCI danger-sign hard override.
       - ESI-aligned band mapping (AHRQ ESI Handbook v5).
@@ -287,44 +289,89 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
     No LLM call happens in this function.
     """
     clf = get_default_classifier()
-    diag = clf.classify_with_abstention(case.symptom_tokens)
 
-    # --- Stage 1: abstention path ---
-    if diag.abstain:
-        missing = ["symptom_tokens"] if not diag.candidates else []
+    # CP gives a formal ≥95% coverage guarantee: the true disease is in the
+    # returned prediction_set with probability ≥ 0.95 under exchangeability.
+    cp = clf.classify_with_cp(case.symptom_tokens, alpha=0.05)
+
+    # --- Stage 1: full abstention — prediction set ≥ 4, CHW cannot resolve ---
+    if cp.decision == "ABSTAIN":
+        missing = ["symptom_tokens"] if not cp.candidates else []
         return ClassificationResult(
             label=ClassificationLabel.INCOMPLETE_ASSESSMENT,
             condition="UNCERTAIN_DIAGNOSIS",
             reasoning=[
-                "Stage 1 reject-option fired — engine abstains rather than guessing.",
-                f"Reason: {diag.abstain_reason}",
-                f"Thresholds used: τ={diag.tau:.3f} (Youden's J), δ={diag.delta:.3f} (risk-coverage).",
-                "Abstention is a safety property: the coordination layer will "
-                "trigger a follow-up question to disambiguate before re-classifying.",
+                "Stage 1 CP gate abstained — prediction set size "
+                f"{cp.set_size} ≥ 4 (symptom picture too ambiguous to commit).",
+                f"CP q̂ = {cp.q_hat:.4f}  α = {cp.alpha}.",
+                "Differential is too wide for a CHW to resolve safely in the field; "
+                "refer to a higher-level facility for clinical workup.",
             ],
             missing_fields=missing,
             abstention_triggered=True,
-            calibrated_confidence=diag.calibrated_confidence,
-            raw_confidence=diag.raw_confidence,
-            gap_to_second=diag.gap_to_second,
-            candidates=diag.candidates[:5] if diag.candidates else [],
+            candidates=cp.candidates[:5] if cp.candidates else [],
             case_id=case.case_id,
         )
 
-    # --- Stage 1: confident diagnosis ---
-    top = diag.candidates[0]
+    # --- Stage 1: uncertain — prediction set 2-3, trigger adaptive follow-up ---
+    if cp.decision == "UNCERTAIN":
+        top = cp.candidates[0]
+
+        # Worst-case severity: use the most severe disease in the prediction set,
+        # not just the top-ranked candidate. SEVERITY_RANK is ascending (0=EMERGENCY,
+        # 3=MILD), so min() picks the most dangerous label. If Heart attack and
+        # Tuberculosis are both in the set, we surface EMERGENCY — never under-triage
+        # while the diagnosis is still open. The follow-up loop will narrow it down.
+        worst_label = min(
+            (severity_for_disease(d) for d in cp.prediction_set),
+            key=lambda s: SEVERITY_RANK[s],
+        )
+        worst_disease = next(
+            d for d in cp.prediction_set
+            if severity_for_disease(d) == worst_label
+        )
+
+        severity_range = sorted(
+            {severity_for_disease(d).value for d in cp.prediction_set},
+            key=lambda v: SEVERITY_RANK[ClassificationLabel(v)],
+        )
+        reasoning = [
+            "Stage 1 CP gate returned UNCERTAIN — prediction set has "
+            f"{cp.set_size} candidates: {cp.prediction_set}.",
+            f"CP q̂ = {cp.q_hat:.4f}  α = {cp.alpha}.",
+            f"Severity range across prediction set: {severity_range}.",
+            f"Worst-case label surfaced to CHW: {worst_label.value!r} "
+            f"(from {worst_disease!r}) — conservative triage until diagnosis resolves.",
+            "Adaptive follow-up loop will ask a discriminating question "
+            "(emergency-first when tiers differ, information-gain otherwise).",
+            f"Top probabilistic candidate: {top.name!r} "
+            f"(calibrated posterior = {cp.posteriors.get(top.name, 0.0):.3f}).",
+        ]
+        return ClassificationResult(
+            label=worst_label,
+            condition=top.name,
+            reasoning=reasoning,
+            candidates=cp.candidates,
+            probable_disease=top.name,
+            abstention_triggered=False,
+            prediction_set=cp.prediction_set,
+            case_id=case.case_id,
+        )
+
+    # --- Stage 1: confident — prediction set size 1 ---
+    top = cp.candidates[0]
     label = severity_for_disease(top.name)
 
     reasoning = [
-        "Stage 1 — dataset-driven disease classifier (adult/out-of-band path).",
-        f"Top diagnosis: {top.name!r}  calibrated_confidence={diag.calibrated_confidence:.3f}  "
-        f"raw_posterior={diag.raw_confidence:.3f}  gap_to_second={diag.gap_to_second:.3f}.",
-        f"Abstention thresholds: τ={diag.tau:.3f} (Youden's J), δ={diag.delta:.3f} (risk-coverage) — both passed ✓.",
+        "Stage 1 — CP gate CONFIDENT (prediction set size = 1).",
+        f"Top diagnosis: {top.name!r}  "
+        f"calibrated_posterior={cp.posteriors.get(top.name, 0.0):.3f}.",
+        f"CP q̂ = {cp.q_hat:.4f}  α = {cp.alpha}.",
         f"Matched symptoms: {top.matched_symptoms}.",
         f"Severity lookup (disease_severity.csv): {top.name!r} → {label.value}.",
     ]
-    if len(diag.candidates) > 1:
-        others = [f"{c.name} ({c.score:.3f})" for c in diag.candidates[1:4]]
+    if len(cp.candidates) > 1:
+        others = [f"{c.name} ({c.score:.3f})" for c in cp.candidates[1:4]]
         reasoning.append(f"Other candidates considered: {others}.")
 
     # --- Stage 2: AHP emergency scoring ---
@@ -339,12 +386,11 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
         label=label,
         condition=top.name,
         reasoning=reasoning,
-        candidates=diag.candidates,
+        candidates=cp.candidates,
         probable_disease=top.name,
-        calibrated_confidence=diag.calibrated_confidence,
-        raw_confidence=diag.raw_confidence,
-        gap_to_second=diag.gap_to_second,
+        calibrated_confidence=cp.posteriors.get(top.name),
         abstention_triggered=False,
+        prediction_set=[],
         emergency_result=emergency,
         case_id=case.case_id,
     )
