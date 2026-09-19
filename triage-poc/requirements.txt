@@ -19,6 +19,11 @@ sentence-transformers>=2.6,<3.0
 # Milestone 6 (Streamlit health officer dashboard, streamlit_app.py):
 streamlit>=1.32
 
+# Loads a local .env so opt-in provider keys (GOOGLE_TRANSLATE_API_KEY, etc.)
+# are picked up without a manual export. Optional at runtime — streamlit_app.py
+# guards the import; real environment variables work with or without it.
+python-dotenv>=1.0
+
 # Cloud LLM fallback (Groq) — plain HTTP via requests above, no SDK dependency required.
 
 # External integration adapters (app/integrations/) — in use, offline-mock

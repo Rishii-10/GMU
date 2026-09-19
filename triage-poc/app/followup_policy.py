@@ -87,7 +87,21 @@ def missing_required(case: ExtractedCase) -> list[str]:
     """Route-aware entry point: picks the pediatric or adult minimum-
     viable-info check based on the same age boundary
     app.rules_engine.classify() routes on, so this gate and the
-    classifier always agree on which route a case is taking."""
+    classifier always agree on which route a case is taking.
+
+    Age itself is the first thing checked: if there is no exact age AND no
+    usable lay age band (age_months is None and age_group is None/UNKNOWN),
+    the case cannot be routed at all -- rules_engine.classify() returns
+    AGE_UNKNOWN_CANNOT_ROUTE for exactly this. So the bare-minimum gap here
+    is age, and we return ["age_months"] (agent1_extraction has a
+    deterministic age-clarifier template for it). This mirrors the
+    classifier's own ordering: the AGE_UNKNOWN_CANNOT_ROUTE branch runs
+    before either route is chosen.
+    """
+    age_unresolved = case.age_months is None and case.age_group in (None, AgeGroup.UNKNOWN)
+    if age_unresolved:
+        return ["age_months"]
+
     routes_to_dataset = (
         case.age_months is not None and case.age_months >= _PEDIATRIC_UPPER_BOUND_MONTHS
     ) or (case.age_months is None and case.age_group in (AgeGroup.ADULT, AgeGroup.ELDERLY))
