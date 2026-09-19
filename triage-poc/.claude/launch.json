@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "triage-streamlit",
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["run_streamlit.sh"],
+      "port": 8501
+    }
+  ]
+}
