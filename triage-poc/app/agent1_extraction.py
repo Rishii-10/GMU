@@ -45,6 +45,7 @@ from app.rules_engine import classify as rules_classify
 from app.disambiguation import DisambiguationResult, Disambiguator, StubDisambiguator
 from app.case_store import CaseStore
 from app import followup_policy
+from app import followup_question_selector as fqs
 
 EXTRACTION_SYSTEM_PROMPT = """You are a medical field-extraction assistant for a rural SMS/IVR triage \
 system. Extract ONLY the fields below from the patient/caregiver message. Support Hindi, Tamil, \
@@ -56,7 +57,7 @@ strict JSON only, matching exactly this shape:
   "symptom": string or null,
   "duration": string or null,
   "severity": "mild" | "moderate" | "severe" | "unknown",
-  "age_group": "infant" | "child" | "adult" | "elderly" | "unknown",
+  "age_group": "infant" | "child" | "adult" | "elderly" | null,
   "age_months": integer or null,
   "location": string or null,
   "notes": string or null,
@@ -81,7 +82,21 @@ strict JSON only, matching exactly this shape:
 Only set a danger_signs/cough/diarrhea field to true or false if the message actually states or \
 clearly implies it; otherwise leave it null. Exam-only signs (breathing rate count, chest indrawing, \
 skin pinch) are never askable from a text message -- do not attempt to fill those; they are not in \
-this schema for that reason."""
+this schema for that reason.
+
+AGE NORMALIZATION -- age_months must always be a whole number of MONTHS. Watch the unit; never \
+copy the bare number when the unit is not months:
+  - "<N> years old" / "<N> saal"        -> N * 12   (e.g. "2 years" -> 24, "5 years" -> 60, "70 years" -> 840)
+  - "<N> months old" / "<N> mahine"     -> N        (e.g. "6 months" -> 6)
+  - "<N> weeks old" / "<N> hafte"       -> about N / 4, rounded down (e.g. "6 weeks" -> 1, "3 weeks" -> 0)
+  - "<N> days old" / "<N> din"          -> about N / 30, rounded down (e.g. "10 days" -> 0)
+  - "newborn" / "just born" / "abhi paida hua" / "a few days old"  -> 0
+  - "one and a half years" / "1.5 years" -> 18   (convert the fraction too)
+If the message gives a phrase like "turned 5 last month" or "5th birthday", that means 5 YEARS -> 60, \
+not 5 months -- read the whole phrase, not just the nearest number to a unit word. \
+If age is given only vaguely with no number ("a baby", "a toddler", "an old man", "elderly"), leave \
+age_months null and set age_group instead. If age is not mentioned at all, set BOTH age_months and \
+age_group to null."""
 
 
 class BackendUnavailable(RuntimeError):
@@ -323,7 +338,13 @@ class RegexBackend(LLMBackend):
             "symptom": symptom,
             "duration": None,
             "severity": "unknown",
-            "age_group": "unknown",
+            # No age keywords in this backend -- leave age genuinely unset
+            # (None), same honest-absence handling as age_months just below.
+            # Coercing to a literal "unknown" here was a hardcoded default:
+            # it made "this coarse backend never looks at age" indistinguishable
+            # from "age was assessed and is unknown". rules_engine.classify()
+            # now routes a None age to AGE_UNKNOWN_CANNOT_ROUTE.
+            "age_group": None,
             "age_months": None,
             "location": None,
             "notes": patient_text,
@@ -339,21 +360,128 @@ class RegexBackend(LLMBackend):
 def _sanitize_enum_fields(parsed: dict) -> dict:
     """Small local models occasionally emit a near-miss enum value (stray
     characters, wrong case, a translated word) instead of one of the exact
-    literals the prompt specifies. Coercing an unrecognized severity/
-    age_group string to "unknown" is not the same as inventing a value --
-    "unknown" is itself a valid, honest value in this schema, and this is
-    strictly safer than letting a malformed string crash schema validation
-    for the whole case. This function intentionally does NOT touch the
-    danger_signs/cough/diarrhea booleans -- those must stay exactly
-    True/False/None, with no coercion, since that distinction is the hard
-    safety requirement this schema exists to enforce."""
+    literals the prompt specifies. Sanitization's only job is "don't let
+    garbage through as if it were data" -- not to guess what the model
+    meant.
+
+      - severity: an unrecognized string -> "unknown". "unknown" IS a
+        first-class, honest value on the severity scale (there is no
+        "severity not assessed" state distinct from it), so this is a safe
+        floor, not an invented value.
+      - age_group: an unrecognized string -> None ("not stated"). Unlike
+        severity, age_group now has a real absent state (Optional, default
+        None), and None/UNKNOWN are NOT the same: None = "we don't have a
+        usable age", UNKNOWN = "a caller explicitly set it to unknown".
+        Coercing junk to the literal "unknown" would manufacture the
+        second from the first. An unrecognized value carries no usable age
+        information, so it becomes None and rules_engine.classify() routes
+        it to AGE_UNKNOWN_CANNOT_ROUTE rather than assuming a pediatric
+        age band.
+
+    This does NOT try to recover a trivially-fixable near-miss (case-fold
+    "ADULT" -> "adult", map the lay term "baby" -> "infant"). That is
+    extraction's job, and doing it here would blur the line between
+    "reject malformed output" and "re-do the model's work". (If a specific
+    recoverable pattern turns out to matter, that's a deliberate extraction
+    -prompt or post-processing change to propose, not something to smuggle
+    into sanitization.)
+
+    Intentionally does NOT touch the danger_signs/cough/diarrhea booleans
+    -- those must stay exactly True/False/None, with no coercion, since
+    that distinction is the hard safety requirement this schema exists to
+    enforce."""
     parsed = dict(parsed)
     sev = parsed.get("severity")
     if sev is not None and sev not in {e.value for e in Severity}:
         parsed["severity"] = Severity.UNKNOWN.value
     ag = parsed.get("age_group")
     if ag is not None and ag not in {e.value for e in AgeGroup}:
-        parsed["age_group"] = AgeGroup.UNKNOWN.value
+        parsed["age_group"] = None
+    return parsed
+
+
+# --- Deterministic <2-month infant-age safety net -----------------------------
+#
+# Phase 1 Part B found that llama3.2:3b (and small models generally) copy the
+# bare number when the age unit is "weeks"/"days" ("3 weeks old" -> age_months=3,
+# "6 week old" -> 6) and return None for "newborn". Every one of those failures
+# pushes a genuine <2-month infant OUT of the young-infant escalation range
+# (rules_engine: age_months < 2), silently routing a neonate through the
+# pediatric IMNCI path -- the single highest-risk failure mode in the pipeline.
+#
+# Prompt instructions alone were judged insufficient for a boundary this
+# dangerous, so this regex runs on the RAW patient text, independently of the
+# LLM, and overrides age_months when it finds explicit evidence of a <2-month
+# infant that the LLM's value contradicts or misses.
+#
+# COVERAGE (deliberately narrow -- this is a safety net, not a general age
+# parser):
+#   - "<N> day(s) old",  "<N>-day-old"      -> N // ~30.44 months
+#   - "<N> week(s) old",  "<N>-week-old"     -> N*7 // ~30.44 months
+#   - "newborn" / "new-born" / "just born" / "just delivered" / "neonate" /
+#     "neonatal"                              -> 0
+# and only when the derived value is < 2 (i.e. actually inside the young-infant
+# band). A "10 week old" -> 2 months is left entirely to the LLM; this net does
+# not touch it.
+#
+# KNOWN GAPS (not covered, by design -- flagged, not silently half-handled):
+#   - "born three weeks ago", "delivered last month", spelled-out numbers
+#     ("three weeks old"), and any age in a non-English script. Extend only
+#     with real benchmark evidence, same policy as the _KEYWORDS table.
+#   - It never RAISES an age (e.g. "turned 5 last month" -> LLM's wrong "5"
+#     is not an infant pattern, so this net stays out of it -- see the Part B
+#     report note on why number/unit-separated phrasing is not reliably
+#     fixable at this layer).
+_MONTHS_PER_DAY = 1.0 / 30.44
+_YOUNG_INFANT_BOUNDARY_MONTHS = 2  # mirrors rules_engine.MODULE_AGE_MIN_MONTHS
+
+_INFANT_AGE_TEXT_PATTERNS: list[tuple[re.Pattern, Callable[[re.Match], int]]] = [
+    (re.compile(r"\b(?:new[\s-]?born|just\s+born|just\s+delivered|neonate|neonatal)\b", re.IGNORECASE),
+     lambda m: 0),
+    (re.compile(r"\b(\d{1,3})\s*[-\s]?\s*days?\s*[-\s]?\s*old\b", re.IGNORECASE),
+     lambda m: int(int(m.group(1)) * _MONTHS_PER_DAY)),
+    (re.compile(r"\b(\d{1,2})\s*[-\s]?\s*weeks?\s*[-\s]?\s*old\b", re.IGNORECASE),
+     lambda m: int(int(m.group(1)) * 7 * _MONTHS_PER_DAY)),
+]
+
+
+def _infant_age_months_from_text(raw_text: str) -> Optional[int]:
+    """Return an explicit <2-month age in whole months if `raw_text` contains
+    day/week/newborn infant-age phrasing that lands inside the young-infant
+    band; None otherwise. Never returns a value >= 2 -- patterns that would
+    compute higher are out of this net's scope and are left to the LLM."""
+    best: Optional[int] = None
+    for pattern, to_months in _INFANT_AGE_TEXT_PATTERNS:
+        m = pattern.search(raw_text)
+        if m is None:
+            continue
+        months = to_months(m)
+        if months < _YOUNG_INFANT_BOUNDARY_MONTHS:
+            best = months if best is None else min(best, months)
+    return best
+
+
+def _apply_infant_age_floor(raw_text: str, parsed: dict) -> dict:
+    """If the raw text carries explicit <2-month infant-age evidence and the
+    backend's age_months does NOT already sit in that band (it's None, or it's
+    >= 2 -- the exact Part B failure shape), override age_months with the
+    deterministic value and leave an audit note. A backend value that is
+    already < 2 is left untouched (it and this net agree on the thing that
+    matters -- the young-infant boundary)."""
+    floor = _infant_age_months_from_text(raw_text)
+    if floor is None:
+        return parsed
+    llm_age = parsed.get("age_months")
+    if isinstance(llm_age, int) and 0 <= llm_age < _YOUNG_INFANT_BOUNDARY_MONTHS:
+        return parsed
+    parsed = dict(parsed)
+    parsed["age_months"] = floor
+    note = (
+        f"[age_months set to {floor} by deterministic infant-age rule: raw text "
+        f"matched day/week/newborn phrasing; backend had age_months={llm_age!r}]"
+    )
+    existing = parsed.get("notes")
+    parsed["notes"] = f"{existing} {note}" if existing else note
     return parsed
 
 
@@ -377,6 +505,7 @@ def extract_case(
     a malformed extraction must not silently become a classified case."""
     parsed = backend.extract(raw_text, context=context)
     parsed = _sanitize_enum_fields(parsed)
+    parsed = _apply_infant_age_floor(raw_text, parsed)
     try:
         return ExtractedCase(
             raw_symptom_text=raw_text,
@@ -437,12 +566,25 @@ ADULT_SYMPTOM_FOLLOWUP_QUESTION = (
     "(for example: fever, chest pain, vomiting, loose motions)."
 )
 
+# Clarifier for rules_engine.classify()'s AGE_UNKNOWN_CANNOT_ROUTE
+# (missing_fields=["age_months"]): every route -- pediatric IMNCI, adult
+# dataset, young-infant escalation -- turns on age, so a case with no age
+# at all cannot be routed without assuming one. Asks for the actual age
+# rather than just a band; the unit examples deliberately include "weeks"
+# so a caregiver of a young infant answers in a form the <2-month boundary
+# can use.
+AGE_CLARIFIER_FOLLOWUP_QUESTION = (
+    "How old is the patient? Please give an age -- for example "
+    "\"3 weeks\", \"6 months\", \"4 years\", or \"70 years\"."
+)
+
 # Merged lookup _followup_question_for() searches -- keeps
 # DANGER_SIGN_FOLLOWUP_QUESTIONS itself unchanged (existing callers/tests
 # import it directly and expect exactly its 4 entries).
 _FOLLOWUP_QUESTIONS: dict[str, str] = {
     **DANGER_SIGN_FOLLOWUP_QUESTIONS,
     "symptom_tokens": ADULT_SYMPTOM_FOLLOWUP_QUESTION,
+    "age_months": AGE_CLARIFIER_FOLLOWUP_QUESTION,
 }
 
 
@@ -807,3 +949,151 @@ def extract_and_classify_with_followup(
     if case_store is not None:
         case_store.record(case, result)
     return case, followup_trail, result
+
+
+# ---------------------------------------------------------------------------
+# Adaptive post-classification follow-up (CP-driven)
+# ---------------------------------------------------------------------------
+
+_ADAPTIVE_FOLLOWUP_SYSTEM_PROMPT = """\
+You are a multilingual rural-health triage assistant. Your task is to convert
+a raw symptom token (from a medical vocabulary list) into a single, clear
+yes/no question appropriate for a caregiver or patient in a low-resource
+setting. The question must:
+  1. Be answerable with a simple "yes" or "no".
+  2. Use plain everyday language — no medical jargon.
+  3. Be specific enough that the answer will help distinguish between the
+     listed possible diseases.
+  4. If the patient's language is provided, phrase it in that language.
+Output ONLY the question text — no preamble, no explanation, no quotation marks.
+"""
+
+
+def generate_followup_question_text(
+    question_token: str,
+    prediction_set: list[str],
+    severity_map: dict[str, str],
+    backend: "LLMBackend",
+    language: Optional[str] = None,
+) -> str:
+    """Ask the Groq LLM to turn a symptom token into a natural-language
+    yes/no question. Falls back to the template dictionary when the backend
+    is unavailable or raises.
+
+    This is the one place in the pipeline where the LLM does real clinical
+    reasoning work: it must phrase the question correctly given (a) the
+    symptom being probed, (b) which diseases are in contention, and (c) the
+    patient's language, drawing on its training knowledge of how symptoms
+    present across those diseases.
+    """
+    disease_list = ", ".join(
+        f"{d} ({severity_map.get(d, 'UNKNOWN')})" for d in prediction_set
+    )
+    lang_hint = f" The patient speaks {language}." if language else ""
+    user_prompt = (
+        f"Symptom token to ask about: {question_token!r}\n"
+        f"Diseases in contention: {disease_list}\n"
+        f"Ask a yes/no question about this symptom that helps distinguish "
+        f"between the listed diseases.{lang_hint}"
+    )
+    try:
+        return backend.generate_text(_ADAPTIVE_FOLLOWUP_SYSTEM_PROMPT, user_prompt).strip()
+    except Exception:
+        return fqs.template_for(question_token)
+
+
+def classify_with_adaptive_followup(
+    case: "ExtractedCase",
+    backend: "LLMBackend",
+    answer_provider: Optional[Callable[[str], str]] = None,
+    max_turns: int = 3,
+    language: Optional[str] = None,
+    case_store: Optional["CaseStore"] = None,
+) -> tuple["ClassificationResult", list[dict[str, str]]]:
+    """Post-classification adaptive follow-up loop driven by the CP prediction set.
+
+    Called AFTER the initial extract_and_classify_with_followup() when the
+    Conformal Prediction gate returns decision == "UNCERTAIN" (prediction_set
+    size 2-3). At each iteration:
+
+      1. Inspect prediction_set on the ClassificationResult.
+         - Empty or decision == "CONFIDENT": done, return result.
+         - Size ≥ 4 (ABSTAIN): done, return result — refer to facility.
+      2. Call followup_question_selector.select_followup_question() to pick
+         the single most discriminating unanswered symptom token.
+         (emergency_first when tiers differ; info_gain otherwise.)
+      3. Call generate_followup_question_text() — Groq LLM produces a
+         natural-language yes/no question from the token.
+      4. Deliver the question via answer_provider; fold the answer back as
+         a new symptom_token if "yes" (present), or note absence if "no".
+      5. Re-classify via rules_engine.classify().
+      6. Repeat up to max_turns times.
+
+    Returns (final ClassificationResult, trail of Q&A dicts).
+    answer_provider is optional: when None the loop is skipped entirely
+    (batch / async callers that cannot block).
+
+    No LLM call for question selection itself — that stays pure-math.
+    The Groq LLM is called once per turn, only to phrase the question.
+    """
+    from app.disease_classifier import get_default_classifier, severity_for_disease
+    from app.schemas import ClassificationLabel
+    from app import followup_question_selector as fqs_local
+
+    result = rules_classify(case)
+    trail: list[dict[str, str]] = []
+
+    if answer_provider is None:
+        if case_store is not None:
+            case_store.record(case, result)
+        return result, trail
+
+    clf = get_default_classifier()
+    rows_by_disease: dict[str, list[list[str]]] = clf._rows_by_disease
+    vocabulary: list[str] = list(clf._kb.vocabulary)
+    severity_map = {d: severity_for_disease(d).value for d in rows_by_disease}
+
+    for turn in range(max_turns):
+        if not result.prediction_set or len(result.prediction_set) <= 1:
+            break  # CONFIDENT or already resolved
+        if len(result.prediction_set) >= 4:
+            break  # ABSTAIN — stop asking
+
+        fq = fqs_local.select_followup_question(
+            prediction_set=result.prediction_set,
+            severity_map={d: severity_map.get(d, "MILD") for d in result.prediction_set},
+            known_tokens=list(case.symptom_tokens),
+            rows_by_disease=rows_by_disease,
+            vocabulary=vocabulary,
+            posteriors=None,
+            loop_count=turn,
+        )
+        if fq is None:
+            break  # no discriminating question available
+
+        question_text = generate_followup_question_text(
+            fq.symptom_token,
+            result.prediction_set,
+            {d: severity_map.get(d, "MILD") for d in result.prediction_set},
+            backend,
+            language=language,
+        )
+
+        answer = answer_provider(question_text)
+        trail.append({"question": question_text, "answer": answer, "token": fq.symptom_token})
+
+        answer_lower = answer.lower().strip()
+        if answer_lower in ("yes", "y", "1", "true", "haan", "हाँ", "ha"):
+            if fq.symptom_token not in case.symptom_tokens:
+                case = case.model_copy(
+                    update={"symptom_tokens": case.symptom_tokens + [fq.symptom_token]}
+                )
+        # Note: a "no" answer is informative too — the absence of a symptom
+        # is naturally handled by NB: not including the token means P(token|disease)
+        # does not boost that disease, so the relative ranking shifts.
+
+        result = rules_classify(case)
+
+    if case_store is not None:
+        case_store.record(case, result)
+    return result, trail

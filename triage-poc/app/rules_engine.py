@@ -1,10 +1,16 @@
 """
 IMNCI Rules Engine -- deterministic, auditable, no LLM anywhere in this file.
 
-Two routes, selected by age (see classify()):
+Three routes, selected by age (see classify()):
+  - Young infant (age_months < 2): no validated WHO IMCI young-infant
+    ruleset is implemented yet -- escalated to human review
+    (INCOMPLETE_ASSESSMENT / condition="YOUNG_INFANT_NO_VALIDATED_RULESET")
+    rather than guessed at or misapplied with child/adult logic. Never
+    routed to the dataset classifier under any circumstance -- see the
+    branch itself, at the top of classify(), for why.
   - Pediatric IMNCI (age 2mo-5yr): the original fixed clinical rules below.
-    Young infant 0-<2mo and malnutrition/anaemia charts are explicitly NOT
-    yet implemented -- see Step 2 of the build order.
+    Malnutrition/anaemia charts are explicitly NOT yet implemented -- see
+    Step 2 of the build order.
   - Adult/elderly/out-of-band (age >=60mo, or age_group ADULT/ELDERLY with
     no exact age): routed to app.disease_classifier.classify_via_dataset(),
     the dataset-driven disease classifier built from the user-supplied
@@ -269,17 +275,19 @@ def _attach_dataset_context(result: ClassificationResult, case: ExtractedCase) -
 def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
     """Primary classification path for adult/elderly/out-of-band-age cases.
 
-    Implements the two-stage rule engine (Rule engine final.md):
+    Implements the two-stage rule engine:
 
-    Stage 1 — Probabilistic diagnosis with calibration + abstention:
-      - Bernoulli Naive Bayes posteriors over 41 diseases.
-      - Isotonic calibration (Niculescu-Mizil & Caruana, ICML 2005).
-      - Reject-option abstention: answer only when calibrated_confidence >= τ
-        (Youden's J threshold) AND gap_to_second >= δ (risk-coverage threshold).
-        Chow (1970); Geifman & El-Yaniv (2017).
-      - If abstain → INCOMPLETE_ASSESSMENT; coordination layer triggers follow-up.
+    Stage 1 — Split Conformal Prediction gate (Vovk 2005; Angelopoulos & Bates 2021):
+      - Bernoulli Naive Bayes posteriors over 41 diseases, isotonic-calibrated
+        (Niculescu-Mizil & Caruana, ICML 2005).
+      - Nonconformity score s(d) = 1 − P̂_calibrated(d | symptoms).
+      - CP prediction set at α=0.05 carries a formal ≥95% coverage guarantee
+        (true disease is in the set) under exchangeability.
+      - set_size=1 → CONFIDENT; 2-3 → UNCERTAIN (adaptive follow-up); ≥4 → ABSTAIN.
+      - UNCERTAIN path uses worst-case (maximum) severity across the prediction
+        set so the CHW never under-triages while the diagnosis is still open.
 
-    Stage 2 — AHP-weighted emergency scoring (only when Stage 1 answers):
+    Stage 2 — AHP-weighted emergency scoring (CONFIDENT path only):
       - Six-attribute acuity score (Saaty 1980 AHP, CR=0.0205).
       - WHO IMCI danger-sign hard override.
       - ESI-aligned band mapping (AHRQ ESI Handbook v5).
@@ -287,44 +295,95 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
     No LLM call happens in this function.
     """
     clf = get_default_classifier()
-    diag = clf.classify_with_abstention(case.symptom_tokens)
 
-    # --- Stage 1: abstention path ---
-    if diag.abstain:
-        missing = ["symptom_tokens"] if not diag.candidates else []
+    # CP gives a formal ≥95% coverage guarantee: the true disease is in the
+    # returned prediction_set with probability ≥ 0.95 under exchangeability.
+    cp = clf.classify_with_cp(case.symptom_tokens, alpha=0.05)
+
+    # --- Stage 1: full abstention — prediction set ≥ 4, CHW cannot resolve ---
+    if cp.decision == "ABSTAIN":
+        # Two distinct failure modes: no recognised symptom tokens is a
+        # missing-input problem (INSUFFICIENT_SYMPTOM_DATA); a too-wide
+        # prediction set despite real symptom evidence is a genuine
+        # diagnostic-uncertainty problem (UNCERTAIN_DIAGNOSIS).
+        no_symptom_evidence = not cp.candidates
+        missing = ["symptom_tokens"] if no_symptom_evidence else []
+        condition = "INSUFFICIENT_SYMPTOM_DATA" if no_symptom_evidence else "UNCERTAIN_DIAGNOSIS"
         return ClassificationResult(
             label=ClassificationLabel.INCOMPLETE_ASSESSMENT,
-            condition="UNCERTAIN_DIAGNOSIS",
+            condition=condition,
             reasoning=[
-                "Stage 1 reject-option fired — engine abstains rather than guessing.",
-                f"Reason: {diag.abstain_reason}",
-                f"Thresholds used: τ={diag.tau:.3f} (Youden's J), δ={diag.delta:.3f} (risk-coverage).",
-                "Abstention is a safety property: the coordination layer will "
-                "trigger a follow-up question to disambiguate before re-classifying.",
+                "Stage 1 CP gate abstained — prediction set size "
+                f"{cp.set_size} ≥ 4 (symptom picture too ambiguous to commit).",
+                f"CP q̂ = {cp.q_hat:.4f}  α = {cp.alpha}.",
+                "Differential is too wide for a CHW to resolve safely in the field; "
+                "refer to a higher-level facility for clinical workup.",
             ],
             missing_fields=missing,
             abstention_triggered=True,
-            calibrated_confidence=diag.calibrated_confidence,
-            raw_confidence=diag.raw_confidence,
-            gap_to_second=diag.gap_to_second,
-            candidates=diag.candidates[:5] if diag.candidates else [],
+            candidates=cp.candidates[:5] if cp.candidates else [],
             case_id=case.case_id,
         )
 
-    # --- Stage 1: confident diagnosis ---
-    top = diag.candidates[0]
+    # --- Stage 1: uncertain — prediction set 2-3, trigger adaptive follow-up ---
+    if cp.decision == "UNCERTAIN":
+        top = cp.candidates[0]
+
+        # Worst-case severity: use the most severe disease in the prediction set,
+        # not just the top-ranked candidate. SEVERITY_RANK is ascending (0=EMERGENCY,
+        # 3=MILD), so min() picks the most dangerous label. If Heart attack and
+        # Tuberculosis are both in the set, we surface EMERGENCY — never under-triage
+        # while the diagnosis is still open. The follow-up loop will narrow it down.
+        worst_label = min(
+            (severity_for_disease(d) for d in cp.prediction_set),
+            key=lambda s: SEVERITY_RANK[s],
+        )
+        worst_disease = next(
+            d for d in cp.prediction_set
+            if severity_for_disease(d) == worst_label
+        )
+
+        severity_range = sorted(
+            {severity_for_disease(d).value for d in cp.prediction_set},
+            key=lambda v: SEVERITY_RANK[ClassificationLabel(v)],
+        )
+        reasoning = [
+            "Stage 1 CP gate returned UNCERTAIN — prediction set has "
+            f"{cp.set_size} candidates: {cp.prediction_set}.",
+            f"CP q̂ = {cp.q_hat:.4f}  α = {cp.alpha}.",
+            f"Severity range across prediction set: {severity_range}.",
+            f"Worst-case label surfaced to CHW: {worst_label.value!r} "
+            f"(from {worst_disease!r}) — conservative triage until diagnosis resolves.",
+            "Adaptive follow-up loop will ask a discriminating question "
+            "(emergency-first when tiers differ, information-gain otherwise).",
+            f"Top probabilistic candidate: {top.name!r} "
+            f"(calibrated posterior = {cp.posteriors.get(top.name, 0.0):.3f}).",
+        ]
+        return ClassificationResult(
+            label=worst_label,
+            condition=top.name,
+            reasoning=reasoning,
+            candidates=cp.candidates,
+            probable_disease=top.name,
+            abstention_triggered=False,
+            prediction_set=cp.prediction_set,
+            case_id=case.case_id,
+        )
+
+    # --- Stage 1: confident — prediction set size 1 ---
+    top = cp.candidates[0]
     label = severity_for_disease(top.name)
 
     reasoning = [
-        "Stage 1 — dataset-driven disease classifier (adult/out-of-band path).",
-        f"Top diagnosis: {top.name!r}  calibrated_confidence={diag.calibrated_confidence:.3f}  "
-        f"raw_posterior={diag.raw_confidence:.3f}  gap_to_second={diag.gap_to_second:.3f}.",
-        f"Abstention thresholds: τ={diag.tau:.3f} (Youden's J), δ={diag.delta:.3f} (risk-coverage) — both passed ✓.",
+        "Stage 1 — CP gate CONFIDENT (prediction set size = 1).",
+        f"Top diagnosis: {top.name!r}  "
+        f"calibrated_posterior={cp.posteriors.get(top.name, 0.0):.3f}.",
+        f"CP q̂ = {cp.q_hat:.4f}  α = {cp.alpha}.",
         f"Matched symptoms: {top.matched_symptoms}.",
         f"Severity lookup (disease_severity.csv): {top.name!r} → {label.value}.",
     ]
-    if len(diag.candidates) > 1:
-        others = [f"{c.name} ({c.score:.3f})" for c in diag.candidates[1:4]]
+    if len(cp.candidates) > 1:
+        others = [f"{c.name} ({c.score:.3f})" for c in cp.candidates[1:4]]
         reasoning.append(f"Other candidates considered: {others}.")
 
     # --- Stage 2: AHP emergency scoring ---
@@ -339,12 +398,11 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
         label=label,
         condition=top.name,
         reasoning=reasoning,
-        candidates=diag.candidates,
+        candidates=cp.candidates,
         probable_disease=top.name,
-        calibrated_confidence=diag.calibrated_confidence,
-        raw_confidence=diag.raw_confidence,
-        gap_to_second=diag.gap_to_second,
+        calibrated_confidence=cp.posteriors.get(top.name),
         abstention_triggered=False,
+        prediction_set=[],
         emergency_result=emergency,
         case_id=case.case_id,
     )
@@ -357,29 +415,92 @@ def classify(case: ExtractedCase) -> ClassificationResult:
     Agent 1's pipeline should call.
 
     Age routing:
-      - age_months < 2 (young infant): IMNCI's young-infant chart is not
-        yet built (Step 2 territory) -- returns INCOMPLETE_ASSESSMENT
-        unchanged from prior behavior; NOT rerouted to the dataset
-        classifier, since that path is validated against adult-disease
-        data, not neonatal presentations.
+      - age_months < 2 (young infant): no validated WHO IMCI young-infant
+        ruleset is implemented (Step 2 territory) -- returns
+        INCOMPLETE_ASSESSMENT with condition="YOUNG_INFANT_NO_VALIDATED_RULESET",
+        deliberately distinct from the pediatric/adult scope guard's
+        "AGE_OUT_OF_MODULE_SCOPE" (see ClassificationLabel.INCOMPLETE_ASSESSMENT's
+        docstring comment in app/schemas.py for why the two are kept
+        separate). Honestly escalates to human review rather than guessing
+        or misapplying adult/child logic. NOT rerouted to the dataset
+        classifier under any circumstance: that path is validated against
+        adult-disease data (data/disease_symptoms.csv has zero neonatal
+        conditions), not neonatal presentations -- and this check runs
+        first in classify(), before the dataset-routing check even
+        executes, so a young infant can never reach it.
+      - age_months is None AND age_group is None or UNKNOWN (age fully
+        unresolved): returns INCOMPLETE_ASSESSMENT with
+        condition="AGE_UNKNOWN_CANNOT_ROUTE". Every route depends on age;
+        with none available the engine will not assume one. Distinct from
+        both YOUNG_INFANT_NO_VALIDATED_RULESET (we have an age, no rules)
+        and AGE_OUT_OF_MODULE_SCOPE. Runs before any route below.
       - age_months >= 60, OR age_months is None with age_group explicitly
         ADULT/ELDERLY: routed to classify_via_dataset() as the PRIMARY path
         (see that function's docstring for what "primary" means here).
-      - Otherwise (age_months in [2, 60), or age unknown entirely with no
-        adult/elderly signal): the existing pediatric IMNCI path, with
+      - Otherwise (age_months in [2, 60), or age_months is None with
+        age_group INFANT/CHILD): the existing pediatric IMNCI path, with
         dataset-classifier candidates attached as supplementary context
         (_attach_dataset_context) -- never overriding the IMNCI label.
     """
 
+    # Young infant (<2mo): a real, tracked clinical gap, not a generic
+    # out-of-scope input -- kept as a DISTINCT condition string from
+    # AGE_OUT_OF_MODULE_SCOPE below (see ClassificationLabel.INCOMPLETE_ASSESSMENT's
+    # docstring comment in app/schemas.py) so downstream handling (e.g.
+    # routing to a facility with neonatal capability) can tell "we have no
+    # inputs" apart from "we have inputs but no validated rules exist yet".
+    # This check runs FIRST, before `routes_to_dataset` below is even
+    # computed, so a young infant can never reach classify_via_dataset() --
+    # that path is validated against data/disease_symptoms.csv, an
+    # adult-disease dataset with zero neonatal conditions, and applying it
+    # to a young infant would be exactly the "misapplying adult logic"
+    # failure mode this branch exists to prevent.
     if case.age_months is not None and case.age_months < MODULE_AGE_MIN_MONTHS:
         return ClassificationResult(
             label=ClassificationLabel.INCOMPLETE_ASSESSMENT,
-            condition="AGE_OUT_OF_MODULE_SCOPE",
+            condition="YOUNG_INFANT_NO_VALIDATED_RULESET",
             reasoning=[
-                f"age_months={case.age_months} is below the 2-month lower bound "
-                "this rules engine implements (young infant <2mo chart is not "
-                "yet built -- see Step 2 of the build order)."
+                f"young infant (age_months={case.age_months}), no validated WHO "
+                "IMCI young-infant ruleset implemented -- escalating to human "
+                "review rather than guessing or misapplying adult/child logic.",
+                "Deliberately NOT routed to classify_via_dataset(): that path "
+                "is validated against the adult-disease CSV "
+                "(data/disease_symptoms.csv), which has zero neonatal "
+                "conditions -- routing a young infant there would misapply "
+                "adult logic, the exact failure mode this branch exists to "
+                "avoid.",
             ],
+            case_id=case.case_id,
+        )
+
+    # Age fully unresolved: no exact age AND no usable lay age band. This is
+    # the same "don't conflate states" principle as the young-infant branch
+    # above and classify_via_dataset()'s INSUFFICIENT_SYMPTOM_DATA -- an
+    # unknown age is a missing INPUT, not a licence to assume the pediatric
+    # band. Falling through to the pediatric IMNCI path here (the old
+    # behavior, when age_group defaulted to UNKNOWN) silently applied
+    # child-2mo-to-5yr fast-breathing/dehydration logic to a patient who
+    # could be an 80-year-old. Kept as its own condition string so the
+    # coordination layer can ask an age-clarifying follow-up (see
+    # app/followup_policy.py) rather than treating it like an unassessed
+    # danger sign. Runs before every route below -- an unrouteable case
+    # must never reach a classifier.
+    age_unresolved = case.age_months is None and case.age_group in (None, AgeGroup.UNKNOWN)
+    if age_unresolved:
+        return ClassificationResult(
+            label=ClassificationLabel.INCOMPLETE_ASSESSMENT,
+            condition="AGE_UNKNOWN_CANNOT_ROUTE",
+            reasoning=[
+                "age is fully unresolved: age_months is None and age_group is "
+                f"{case.age_group.value if case.age_group is not None else 'None'} "
+                "(no usable lay age band).",
+                "IMNCI vs. adult/dataset routing both depend on age; with none "
+                "available the engine cannot pick a route without assuming one. "
+                "Returning INCOMPLETE_ASSESSMENT / AGE_UNKNOWN_CANNOT_ROUTE so an "
+                "age-clarifying follow-up can be asked, rather than silently "
+                "defaulting to the pediatric age band.",
+            ],
+            missing_fields=["age_months"],
             case_id=case.case_id,
         )
 

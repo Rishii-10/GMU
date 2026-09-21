@@ -16,6 +16,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.integrations.geo import ORSProvider, MockRoutingProvider as GeoMockRoutingProvider
+from app.integrations.language_gateway import LanguageGateway, get_translator
 from app.integrations.messaging import MessagingProvider, MockProvider, TwilioProvider
 from app.integrations.translation import GoogleTranslateProvider, IdentityTranslator, Translator
 
@@ -150,6 +151,116 @@ def test_google_translate_provider_detect_language(mock_post):
 def test_translator_is_abstract():
     with pytest.raises(TypeError):
         Translator()
+
+
+@patch("requests.post")
+def test_google_translate_provider_translate_batch_single_call(mock_post):
+    mock_post.return_value = MagicMock(
+        status_code=200,
+        json=lambda: {
+            "data": {
+                "translations": [
+                    {"translatedText": "go to the hospital", "detectedSourceLanguage": "en"},
+                    {"translatedText": "drink fluids", "detectedSourceLanguage": "en"},
+                    {"translatedText": "rest", "detectedSourceLanguage": "en"},
+                ]
+            }
+        },
+    )
+    provider = GoogleTranslateProvider(api_key="fake-key")
+    results = provider.translate_batch(["A", "B", "C"], target_language="hi")
+    mock_post.assert_called_once()
+    assert [r.translated_text for r in results] == ["go to the hospital", "drink fluids", "rest"]
+    assert [r.original_text for r in results] == ["A", "B", "C"]
+
+
+def test_google_translate_provider_translate_batch_degrades_on_error():
+    import requests
+
+    provider = GoogleTranslateProvider(api_key="fake-key")
+    with patch("requests.post", side_effect=requests.RequestException("boom")):
+        results = provider.translate_batch(["one", "two"], target_language="hi")
+    assert [r.translated_text for r in results] == ["one", "two"]
+
+
+def test_identity_translator_translate_batch_loops():
+    results = IdentityTranslator().translate_batch(["x", "y"], target_language="hi")
+    assert [r.translated_text for r in results] == ["x", "y"]
+
+
+# --- language_gateway.py ------------------------------------------------------
+
+
+def test_get_translator_without_key_is_identity(monkeypatch):
+    monkeypatch.delenv("GOOGLE_TRANSLATE_API_KEY", raising=False)
+    assert isinstance(get_translator(), IdentityTranslator)
+
+
+def test_gateway_identity_is_full_passthrough():
+    gw = LanguageGateway(IdentityTranslator())
+    assert gw.to_english("पेट दर्द") == "पेट दर्द"
+    assert gw.language is None
+    assert gw.from_english("Go to the hospital now") == "Go to the hospital now"
+    assert gw.from_english_batch(["a", "b"]) == ["a", "b"]
+    assert gw.from_english(None) is None
+
+
+def test_gateway_english_input_makes_no_translate_call():
+    with patch("requests.post") as mock_post:
+        mock_post.return_value = MagicMock(
+            status_code=200,
+            json=lambda: {"data": {"detections": [[{"language": "en", "confidence": 0.99}]]}},
+        )
+        gw = LanguageGateway(GoogleTranslateProvider(api_key="fake-key"))
+        out = gw.to_english("My child has a fever")
+    assert out == "My child has a fever"
+    assert gw.language == "en"
+    # exactly one POST: the detect call. No translate call for English.
+    assert mock_post.call_count == 1
+    # outbound side is a passthrough too when the caregiver language is English
+    assert gw.from_english("Go now") == "Go now"
+
+
+def test_gateway_non_english_round_trip():
+    calls = []
+
+    def fake_post(url, params=None, data=None, timeout=None):
+        calls.append((url, data))
+        if url.endswith("/detect"):
+            return MagicMock(status_code=200, json=lambda: {"data": {"detections": [[{"language": "hi"}]]}})
+        # translate endpoint
+        q = data["q"]
+        if isinstance(q, list):
+            return MagicMock(
+                status_code=200,
+                json=lambda: {"data": {"translations": [{"translatedText": f"HI:{s}"} for s in q]}},
+            )
+        return MagicMock(
+            status_code=200,
+            json=lambda: {"data": {"translations": [{"translatedText": f"HI:{q}", "detectedSourceLanguage": "hi"}]}},
+        )
+
+    with patch("requests.post", side_effect=fake_post):
+        gw = LanguageGateway(GoogleTranslateProvider(api_key="fake-key"))
+        english_in = gw.to_english("पेट दर्द")
+        assert gw.language == "hi"
+        assert english_in == "HI:पेट दर्द"  # (mock just prefixes; real API would return English)
+        assert gw.from_english("Go to the hospital") == "HI:Go to the hospital"
+        assert gw.from_english_batch(["rest", "fluids"]) == ["HI:rest", "HI:fluids"]
+
+    # batch went out as ONE translate request, not two
+    translate_batch_calls = [d for u, d in calls if not u.endswith("/detect") and isinstance(d["q"], list)]
+    assert len(translate_batch_calls) == 1
+
+
+def test_gateway_network_failure_degrades_to_passthrough():
+    import requests
+
+    with patch("requests.post", side_effect=requests.RequestException("boom")):
+        gw = LanguageGateway(GoogleTranslateProvider(api_key="fake-key"))
+        assert gw.to_english("पेट दर्द") == "पेट दर्द"  # detect failed -> None -> treated as English
+        assert gw.language is None
+        assert gw.from_english("Go now") == "Go now"
 
 
 # --- geo.py -----------------------------------------------------------------------
