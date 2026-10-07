@@ -375,6 +375,16 @@ class DiseaseClassifier:
         raw_tops: list[float] = []
         is_correct: list[int] = []
         gaps: list[float] = []
+        # Raw posterior of the TRUE disease for each held-out profile, scored
+        # by that fold's own model -- the input to the Conformal Prediction
+        # nonconformity scores (1 - P̂_cal(true_class)). Collected INSIDE the
+        # fold loop so CP calibration is leak-free in exactly the same way
+        # the isotonic/τ/δ calibration above is. (An earlier version scored
+        # these with the full-data model via self._raw_posteriors(), i.e.
+        # on profiles that model had already trained on -- the same leakage
+        # this docstring describes -- and referenced a `held_out_rows` list
+        # that no longer existed after the k-fold rewrite, which made
+        # DiseaseClassifier() raise NameError on construction.)
         true_class_raw_posteriors: list[float] = []
 
         vocab_set = set(self.vocabulary)
@@ -421,6 +431,9 @@ class DiseaseClassifier:
                 gaps.append(top_p - second_p)
                 # Out-of-fold raw posterior of the TRUE class — needed for
                 # Conformal Prediction nonconformity scores (1 - P̂(true_class)).
+                # A disease absent from this fold's training side (should
+                # not happen at k=5, see _CALIBRATION_N_FOLDS) scores 0.0,
+                # i.e. maximal nonconformity -- conservative, widens q̂.
                 true_class_raw_posteriors.append(probs.get(true_disease, 0.0))
 
         if not raw_tops:
