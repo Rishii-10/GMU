@@ -16,12 +16,7 @@
       "NON_URGENT": 333
     }
   },
-  "binary": {
-    "TP": 334,
-    "FP": 0,
-    "FN": 0,
-    "TN": 666
-  },
+  "binary": "NON_URGENT",
   "metrics": {
     "precision": 1.0,
     "recall": 1.0,
@@ -33,10 +28,32 @@
     "NON_URGENT": 1.0
   },
   "decision_counts": {
-    "CONFIDENT": 793,
-    "UNCERTAIN": 206,
+    "CONFIDENT": 801,
+    "UNCERTAIN": 198,
     "ABSTAIN": 1
   },
+  "ahp_vs_disease_tier_on_confident": {
+    "n": 801,
+    "agreement": 0.623,
+    "matrix": {
+      "EMERGENCY": {
+        "EMERGENCY": 169,
+        "URGENT": 0,
+        "NON_URGENT": 0
+      },
+      "URGENT": {
+        "EMERGENCY": 49,
+        "URGENT": 260,
+        "NON_URGENT": 0
+      },
+      "NON_URGENT": {
+        "EMERGENCY": 0,
+        "URGENT": 253,
+        "NON_URGENT": 70
+      }
+    }
+  },
+  "scored_through": "app.rules_engine.classify (adult, age_months=480, danger signs unassessed)",
   "n": 1000,
   "targets": {
     "EMERGENCY": 334,
