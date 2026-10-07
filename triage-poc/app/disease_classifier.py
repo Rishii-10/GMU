@@ -109,14 +109,26 @@ EMERGENCY_SAFETY_FACTOR = 3.0
 # If an EMERGENCY disease is already in the CP prediction set AND one of these
 # discriminating tokens is present in the patient's reported symptoms, collapse
 # the prediction set to that disease immediately without waiting for the
-# adaptive follow-up loop.  Each token below is ≥ 80 % frequent in at least
-# one EMERGENCY disease's rows and near-zero in all SEVERE/MODERATE diseases.
+# adaptive follow-up loop.
+#
+# Membership rule (checked against data/disease_symptoms.csv, enforced by
+# tests/test_cp_ahp_adaptive.py::test_every_red_flag_token_exists_in_vocabulary):
+# the token must exist in the 131-token vocabulary, appear in >= 80 % of an
+# EMERGENCY disease's rows, and in 0 % of every other disease's rows.
+#
+# Only Paralysis (brain hemorrhage) has such tokens. Heart attack's rows
+# contain exactly four tokens (chest_pain, breathlessness, sweating,
+# vomiting), every one of which also appears in >= 90 % of Tuberculosis
+# rows, so NO red-flag token exists for Heart attack in this dataset; the
+# Heart-attack-vs-TB separation rests entirely on EMERGENCY_SAFETY_FACTOR
+# and the worst-case-severity rule on UNCERTAIN sets (rules_engine F3).
+# An earlier version of this set listed radiating_pain,
+# loss_of_consciousness and sudden_severe_headache (not in the vocabulary,
+# could never match) and weakness_in_limbs (in the vocabulary, but a
+# Cervical spondylosis token: 0 % of Paralysis rows).
 _RED_FLAG_TOKENS: frozenset[str] = frozenset({
-    "radiating_pain",         # Heart attack: ~92 % frequency, ~0 % in Tuberculosis
-    "altered_sensorium",      # Paralysis (brain haemorrhage): ~85 % frequency
-    "loss_of_consciousness",  # Paralysis: ~80 % frequency
-    "sudden_severe_headache", # Paralysis: ~75 % frequency
-    "weakness_in_limbs",      # Paralysis: ~78 % frequency
+    "altered_sensorium",          # Paralysis: 95 % of rows, 0 % elsewhere
+    "weakness_of_one_body_side",  # Paralysis: 90 % of rows, 0 % elsewhere
 })
 
 
