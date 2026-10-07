@@ -363,3 +363,37 @@ def test_adaptive_loop_never_downgrades_below_worst_case_while_uncertain():
                              ClassificationLabel.MODERATE: 2, ClassificationLabel.MILD: 3}[lbl],
         )
         assert result.label == worst
+
+
+# ---------------------------------------------------------------------------
+# Danger-sign override reaches the label (adult route)
+# ---------------------------------------------------------------------------
+
+_FUNGAL = ["itching", "skin_rash", "nodal_skin_eruptions", "dischromic_patches"]
+
+
+def test_adult_confirmed_danger_sign_escalates_label_to_emergency():
+    # Regression: label stayed at the disease tier (MILD here) while the
+    # attached EmergencyResult said score 10 / EMERGENCY, so the Routing
+    # Agent (which keys off label) never dispatched.
+    case = make_case(age_months=420, symptom_tokens=_FUNGAL, danger_signs=DangerSigns(convulsions=True))
+    result = classify(case)
+    assert result.emergency_result is not None
+    assert result.emergency_result.override_triggered is True
+    assert result.label == ClassificationLabel.EMERGENCY
+    assert result.condition == "Fungal infection"  # disease kept for the report
+    assert any("hard override" in r for r in result.reasoning)
+
+
+def test_adult_unassessed_danger_signs_leave_label_alone():
+    case = make_case(age_months=420, symptom_tokens=_FUNGAL, danger_signs=DangerSigns())
+    result = classify(case)
+    assert result.label == ClassificationLabel.MILD
+    assert result.emergency_result.override_triggered is False
+
+
+def test_adult_explicitly_negative_danger_signs_leave_label_alone():
+    neg = DangerSigns(not_able_to_drink_or_breastfeed=False, vomits_everything=False,
+                      convulsions=False, lethargic_or_unconscious=False)
+    result = classify(make_case(age_months=420, symptom_tokens=_FUNGAL, danger_signs=neg))
+    assert result.label == ClassificationLabel.MILD
