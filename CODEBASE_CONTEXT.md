@@ -43,6 +43,7 @@
 / (repo root)
 ├─ CODEBASE_CONTEXT.md            THIS FILE (agent context, source of truth)
 ├─ CLAUDE.md                      auto-loaded pointer + update rule (enforcement)
+├─ EVALUATION_METRICS.md          proposed paper eval metrics table (definitions only, pending verification; nothing implemented)
 ├─ .gitignore                     __pycache__/ *.pyc .venv/ venv/ .pytest_cache/ *.sqlite *.index .DS_Store .env .claude/settings.local.json triage-poc/venv_audit/
 ├─ .env                           UNTRACKED+gitignored, machine-local (see §4.3)
 ├─ .claude/launch.json            config "triage-poc": python -m streamlit run triage-poc/streamlit_app.py --server.headless true --server.port 8501
@@ -451,6 +452,7 @@
 ## §15 DOCS INDEX + CONFIRMED DOC-vs-CODE MISMATCHES (code is truth)
 | doc | status |
 |---|---|
+| EVALUATION_METRICS.md | proposal for paper evaluation (8 metric rows); no eval code/test set built for it yet |
 | README.md | partly outdated (pre-CP/AHP/adaptive pipeline; "only two AI points"; AGE_OUT_OF_MODULE_SCOPE; Streamlit described as single-shot extract_and_classify with no loop — false; RegexBackend selectable in UI — false; Google Translate "not used" — false; "DISEASE_SEVERITY table" — is CSV). Its top documentation table links triage-poc/rule_engine_design_final.md as canonical |
 | ARCHITECTURE.md | outdated (omits emergency_scorer, followup_question_selector, language_gateway, disease_severity.csv, several tests, evals; says no dashboard) |
 | AGENT1_README.md | partly outdated (no adaptive Flow C, no LanguageGateway; says the other LLM use is "Agent 2's outbreak reasoning" — never built; omits report.py and Flow C phrasing LLM calls) |
@@ -498,3 +500,4 @@
 - 2026-10-08 | fix @ a192ded + uncommitted tree (§16.2) | initial creation, all sections | Claude Code session (4 fact agents)
 - 2026-10-08 | same tree | verifier pass: 21 corrections (§0, §4.4, §6, §7 E6/E7/E8, §9, §11, §13, §14.2, §15, §16.1); added D-REDFLAG-TOP | Claude Code session (verifier agent)
 - 2026-10-08 | same tree + rules_engine CONFIDENT fix + regenerated eval_results.json | §7 E6, §13.2, §14.2 (D-REDFLAG-TOP fixed; weakness_in_limbs kept by owner decision), §16.2; tests re-run 383 pass / 1 fail (stale) / 2 xfail; all 3 evals re-run | Claude Code session
+- 2026-10-08 | fix tree | §3, §15: added EVALUATION_METRICS.md (paper metrics proposal, docs only) | Claude Code session
