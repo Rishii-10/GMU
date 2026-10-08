@@ -91,13 +91,13 @@
     {
       "true_disease": "Heart attack",
       "true_sev": "EMERGENCY",
-      "pred_disease": "Tuberculosis",
-      "pred_sev": "SEVERE",
+      "pred_disease": "Heart attack",
+      "pred_sev": "EMERGENCY",
       "decision": "UNCERTAIN",
       "set_size": 2,
       "prediction_set": [
-        "Tuberculosis",
-        "Heart attack"
+        "Heart attack",
+        "Tuberculosis"
       ]
     },
     {
@@ -191,13 +191,13 @@
     {
       "true_disease": "Heart attack",
       "true_sev": "EMERGENCY",
-      "pred_disease": "Tuberculosis",
-      "pred_sev": "SEVERE",
+      "pred_disease": "Heart attack",
+      "pred_sev": "EMERGENCY",
       "decision": "UNCERTAIN",
       "set_size": 2,
       "prediction_set": [
-        "Tuberculosis",
-        "Heart attack"
+        "Heart attack",
+        "Tuberculosis"
       ]
     },
     {
@@ -1108,8 +1108,8 @@
   ],
   "cm": {
     "EMERGENCY": {
-      "EMERGENCY": 2,
-      "SEVERE": 2,
+      "EMERGENCY": 4,
+      "SEVERE": 0,
       "MODERATE": 0,
       "MILD": 0
     },
@@ -1132,16 +1132,16 @@
       "MILD": 14
     }
   },
-  "correct_disease": 96,
+  "correct_disease": 98,
   "in_pred_set": 100,
   "abstained": 0,
   "uncertain": 5,
   "confident_correct": 95,
   "confident_total": 95,
   "binary": {
-    "TP": 2,
+    "TP": 4,
     "FP": 0,
-    "FN": 2,
+    "FN": 0,
     "TN": 96
   }
 }

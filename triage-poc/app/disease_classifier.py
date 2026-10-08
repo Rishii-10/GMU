@@ -375,6 +375,7 @@ class DiseaseClassifier:
         raw_tops: list[float] = []
         is_correct: list[int] = []
         gaps: list[float] = []
+        true_class_raw_posteriors: list[float] = []
 
         vocab_set = set(self.vocabulary)
         for fold_idx in range(_CALIBRATION_N_FOLDS):
@@ -418,17 +419,9 @@ class DiseaseClassifier:
                 raw_tops.append(top_p)
                 is_correct.append(1 if top_d == true_disease else 0)
                 gaps.append(top_p - second_p)
-
-        # Also track the raw posterior of the TRUE class per sample — needed
-        # for Conformal Prediction nonconformity scores (1 - P̂(true_class)).
-        true_class_raw_posteriors: list[float] = []
-        for true_disease, row_symptoms in held_out_rows:
-            recognized_cp = sorted({t for t in row_symptoms if t in vocab_set})
-            if not recognized_cp:
-                true_class_raw_posteriors.append(0.0)
-                continue
-            probs = self._raw_posteriors(recognized_cp)
-            true_class_raw_posteriors.append(probs.get(true_disease, 0.0))
+                # Out-of-fold raw posterior of the TRUE class — needed for
+                # Conformal Prediction nonconformity scores (1 - P̂(true_class)).
+                true_class_raw_posteriors.append(probs.get(true_disease, 0.0))
 
         if not raw_tops:
             return None, 0.5, 0.1, []

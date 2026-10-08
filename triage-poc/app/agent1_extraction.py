@@ -964,7 +964,8 @@ setting. The question must:
   2. Use plain everyday language — no medical jargon.
   3. Be specific enough that the answer will help distinguish between the
      listed possible diseases.
-  4. If the patient's language is provided, phrase it in that language.
+  4. Be written in simple English, one short sentence (at most 12 words),
+     because it will be machine-translated for the patient.
 Output ONLY the question text — no preamble, no explanation, no quotation marks.
 """
 
@@ -989,17 +990,92 @@ def generate_followup_question_text(
     disease_list = ", ".join(
         f"{d} ({severity_map.get(d, 'UNKNOWN')})" for d in prediction_set
     )
-    lang_hint = f" The patient speaks {language}." if language else ""
+    # Always English: the LanguageGateway translates it for the caller.
     user_prompt = (
         f"Symptom token to ask about: {question_token!r}\n"
         f"Diseases in contention: {disease_list}\n"
         f"Ask a yes/no question about this symptom that helps distinguish "
-        f"between the listed diseases.{lang_hint}"
+        f"between the listed diseases."
     )
     try:
         return backend.generate_text(_ADAPTIVE_FOLLOWUP_SYSTEM_PROMPT, user_prompt).strip()
     except Exception:
         return fqs.template_for(question_token)
+
+
+_YES_WORDS = {"yes", "y", "yeah", "yep", "1", "true", "haan", "han", "haa", "ha", "ji", "हाँ", "हां", "हा"}
+_NO_WORDS = {"no", "n", "nope", "0", "false", "nahi", "nahin", "nai", "na", "नहीं", "नही", "ना"}
+
+
+def parse_yes_no(text: str) -> Optional[bool]:
+    """True for a yes, False for a no, None when the reply is neither
+    (caller should re-ask). Only the first word matters, so 'haan ji' and
+    'no, not really' both parse."""
+    words = re.findall(r"[\wऀ-ॿ]+", (text or "").lower())
+    if not words:
+        return None
+    if words[0] in _YES_WORDS:
+        return True
+    if words[0] in _NO_WORDS:
+        return False
+    return None
+
+
+def next_followup_question(
+    case: "ExtractedCase",
+    result: "ClassificationResult",
+    trail: list[dict[str, str]],
+    backend: "LLMBackend",
+    max_turns: int = 3,
+    language: Optional[str] = None,
+) -> Optional[tuple[str, str]]:
+    """Pick the next follow-up question, or None when no more are needed.
+
+    Returns (symptom_token, english_question_text). Stateless: everything it
+    needs is passed in (the case so far + the Q&A trail), so it works the same
+    for a blocking loop and for a one-message-at-a-time channel like SMS.
+    Never re-asks a symptom already reported (yes) or already asked (yes/no).
+    """
+    from app.disease_classifier import get_default_classifier, severity_for_disease
+
+    if len(trail) >= max_turns or len(result.prediction_set) <= 1:
+        return None  # cap reached, CONFIDENT, or nothing to narrow
+
+    clf = get_default_classifier()
+    rows_by_disease = clf._rows_by_disease
+    severity_map = {d: severity_for_disease(d).value for d in result.prediction_set}
+    fq = fqs.select_followup_question(
+        prediction_set=result.prediction_set,
+        severity_map=severity_map,
+        known_tokens=list(case.symptom_tokens) + [t["token"] for t in trail],
+        rows_by_disease=rows_by_disease,
+        vocabulary=list(clf.kb.vocabulary),
+        posteriors=None,
+        loop_count=len(trail),
+    )
+    if fq is None:
+        return None  # no discriminating question available
+    text = generate_followup_question_text(
+        fq.symptom_token, result.prediction_set, severity_map, backend, language=language
+    )
+    return fq.symptom_token, text
+
+
+def record_followup_answer(
+    case: "ExtractedCase",
+    trail: list[dict[str, str]],
+    token: str,
+    question: str,
+    answer: str,
+) -> "ExtractedCase":
+    """Store one Q&A in the trail and fold a 'yes' into the case's symptom
+    tokens. The returned case still carries the original message and every
+    earlier answer, so the next classify() sees all of it. A 'no' only stops
+    the symptom being asked again (the classifier scores reported symptoms)."""
+    trail.append({"question": question, "answer": answer, "token": token})
+    if parse_yes_no(answer) is True and token not in case.symptom_tokens:
+        case = case.model_copy(update={"symptom_tokens": case.symptom_tokens + [token]})
+    return case
 
 
 def classify_with_adaptive_followup(
@@ -1009,90 +1085,27 @@ def classify_with_adaptive_followup(
     max_turns: int = 3,
     language: Optional[str] = None,
     case_store: Optional["CaseStore"] = None,
+    gateway: Optional["LanguageGateway"] = None,
 ) -> tuple["ClassificationResult", list[dict[str, str]]]:
-    """Post-classification adaptive follow-up loop driven by the CP prediction set.
-
-    Called AFTER the initial extract_and_classify_with_followup() when the
-    Conformal Prediction gate returns decision == "UNCERTAIN" (prediction_set
-    size 2-3). At each iteration:
-
-      1. Inspect prediction_set on the ClassificationResult.
-         - Empty or decision == "CONFIDENT": done, return result.
-         - Size ≥ 4 (ABSTAIN): done, return result — refer to facility.
-      2. Call followup_question_selector.select_followup_question() to pick
-         the single most discriminating unanswered symptom token.
-         (emergency_first when tiers differ; info_gain otherwise.)
-      3. Call generate_followup_question_text() — Groq LLM produces a
-         natural-language yes/no question from the token.
-      4. Deliver the question via answer_provider; fold the answer back as
-         a new symptom_token if "yes" (present), or note absence if "no".
-      5. Re-classify via rules_engine.classify().
-      6. Repeat up to max_turns times.
-
-    Returns (final ClassificationResult, trail of Q&A dicts).
-    answer_provider is optional: when None the loop is skipped entirely
-    (batch / async callers that cannot block).
-
-    No LLM call for question selection itself — that stays pure-math.
-    The Groq LLM is called once per turn, only to phrase the question.
+    """Blocking version of the post-classification follow-up loop: asks via
+    `answer_provider` until the prediction set is resolved or max_turns is
+    reached. `gateway` (optional) translates each outgoing question; the trail
+    keeps the English text. Built from next_followup_question() and
+    record_followup_answer(), the same pieces a one-message-at-a-time channel
+    (SMS, the Streamlit Caller tab) uses. answer_provider=None skips the loop.
     """
-    from app.disease_classifier import get_default_classifier, severity_for_disease
-    from app.schemas import ClassificationLabel
-    from app import followup_question_selector as fqs_local
-
     result = rules_classify(case)
     trail: list[dict[str, str]] = []
 
-    if answer_provider is None:
-        if case_store is not None:
-            case_store.record(case, result)
-        return result, trail
-
-    clf = get_default_classifier()
-    rows_by_disease: dict[str, list[list[str]]] = clf._rows_by_disease
-    vocabulary: list[str] = list(clf._kb.vocabulary)
-    severity_map = {d: severity_for_disease(d).value for d in rows_by_disease}
-
-    for turn in range(max_turns):
-        if not result.prediction_set or len(result.prediction_set) <= 1:
-            break  # CONFIDENT or already resolved
-        if len(result.prediction_set) >= 4:
-            break  # ABSTAIN — stop asking
-
-        fq = fqs_local.select_followup_question(
-            prediction_set=result.prediction_set,
-            severity_map={d: severity_map.get(d, "MILD") for d in result.prediction_set},
-            known_tokens=list(case.symptom_tokens),
-            rows_by_disease=rows_by_disease,
-            vocabulary=vocabulary,
-            posteriors=None,
-            loop_count=turn,
-        )
-        if fq is None:
-            break  # no discriminating question available
-
-        question_text = generate_followup_question_text(
-            fq.symptom_token,
-            result.prediction_set,
-            {d: severity_map.get(d, "MILD") for d in result.prediction_set},
-            backend,
-            language=language,
-        )
-
-        answer = answer_provider(question_text)
-        trail.append({"question": question_text, "answer": answer, "token": fq.symptom_token})
-
-        answer_lower = answer.lower().strip()
-        if answer_lower in ("yes", "y", "1", "true", "haan", "हाँ", "ha"):
-            if fq.symptom_token not in case.symptom_tokens:
-                case = case.model_copy(
-                    update={"symptom_tokens": case.symptom_tokens + [fq.symptom_token]}
-                )
-        # Note: a "no" answer is informative too — the absence of a symptom
-        # is naturally handled by NB: not including the token means P(token|disease)
-        # does not boost that disease, so the relative ranking shifts.
-
-        result = rules_classify(case)
+    if answer_provider is not None:
+        while True:
+            nxt = next_followup_question(case, result, trail, backend, max_turns, language)
+            if nxt is None:
+                break
+            token, question = nxt
+            outgoing = gateway.from_english(question) if gateway is not None else question
+            case = record_followup_answer(case, trail, token, question, answer_provider(outgoing))
+            result = rules_classify(case)
 
     if case_store is not None:
         case_store.record(case, result)
