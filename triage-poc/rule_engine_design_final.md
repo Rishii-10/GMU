@@ -143,7 +143,7 @@ This holds under the exchangeability assumption (calibration and test data from 
 ```mermaid
 flowchart LR
     A["symptom_tokens"] --> B["Naïve Bayes\nLog-posterior scores\n41 diseases"]
-    B --> C["Isotonic Calibration\nNiculescu-Mizil & Caruana 2005\nfitted on 20% holdout"]
+    B --> C["Isotonic Calibration\nNiculescu-Mizil & Caruana 2005\nfitted out-of-fold, 5-fold over\nunique symptom profiles"]
     C --> D["Calibrated posteriors\nP̂_cal(disease | symptoms)"]
     D --> E["Emergency Safety Boost\n× 3.0 for EMERGENCY diseases\nbefore quantile computation  ← F1"]
     E --> F["Nonconformity scores\ns(d) = 1 − P̂_cal(d | symptoms)\nfor each calibration example"]
@@ -163,8 +163,8 @@ flowchart LR
 |---|---|---|
 | α (alpha) | 0.05 | Miscoverage budget → ≥ 95% coverage guarantee |
 | `EMERGENCY_SAFETY_FACTOR` | 3.0 | Prior boost multiplier for EMERGENCY diseases (Fix F1) |
-| `_RED_FLAG_TOKENS` | `{radiating_pain, altered_sensorium, loss_of_consciousness, sudden_severe_headache, weakness_in_limbs}` | Trigger set for deterministic override (Fix F2) |
-| Calibration split | 80 % train / 20 % calibration | From `disease_symptoms.csv` |
+| `_RED_FLAG_TOKENS` | `{altered_sensorium, weakness_of_one_body_side}` | Trigger set for deterministic override (Fix F2). Only tokens that exist in the 131-token vocabulary, appear in ≥ 80 % of an EMERGENCY disease's rows and 0 % of all other rows. Both belong to Paralysis (brain hemorrhage). **Heart attack has no red-flag token in this dataset**: its rows contain only `chest_pain`, `breathlessness`, `sweating`, `vomiting`, all shared with Tuberculosis at ≥ 90 %. |
+| Calibration split | Stratified 5-fold over the 304 unique (disease, symptom-set) profiles, seed 42 | Row-level 80/20 split was replaced because 94 % of rows are exact duplicates and leaked across the split (see `_fit_calibration_and_thresholds()` docstring). Isotonic calibration, τ/δ and the CP nonconformity scores are all out-of-fold. |
 
 ### 4.4 Routing by Decision
 
@@ -184,17 +184,19 @@ Runs **only** when Stage 1 returns CONFIDENT (prediction set size = 1).
 
 ### 5.1 Six Attributes and AHP Weights
 
-Analytic Hierarchy Process (Saaty 1980) with six clinical acuity attributes. Pairwise comparison matrix yields a consistency ratio **CR = 0.0205** (well below Saaty's 0.10 threshold).
+Analytic Hierarchy Process (Saaty 1980) with six acuity attributes. The pairwise comparison matrix is in `app/emergency_scorer.py`'s module docstring; its principal eigenvector gives the weights below (recomputed independently: 0.382 / 0.250 / 0.160 / 0.101 / 0.064 / 0.043, λ_max = 6.12, **CR = 0.020**, below Saaty's 0.10 threshold).
+
+> An earlier revision of this section listed different attributes (Symptom Severity 0.412, Onset Speed 0.263, Vital Sign Instability 0.142, Age 0.091, Comorbidity 0.058, Duration 0.034). No vital-sign or comorbidity attribute exists in the code; the table below is what `score_emergency()` actually computes.
 
 ```mermaid
 graph TD
-    ROOT["Emergency Score\n/10"]
-    A1["Symptom Severity\nw = 0.412"]
-    A2["Onset Speed\nw = 0.263"]
-    A3["Vital Sign Instability\nw = 0.142"]
-    A4["Age Vulnerability\nw = 0.091"]
-    A5["Comorbidity Burden\nw = 0.058"]
-    A6["Symptom Duration\nw = 0.034"]
+    ROOT["Emergency Score\n1–10"]
+    A1["Complication / deterioration probability\nw = 0.379 (per-disease table)"]
+    A2["Time-to-treatment sensitivity\nw = 0.249 (per-disease table)"]
+    A3["Disease severity tier\nw = 0.161 (MILD .15 / MODERATE .45 / SEVERE .75 / EMERGENCY 1.0)"]
+    A4["Age vulnerability\nw = 0.102 (WHO IMCI bands + ESI geriatric)"]
+    A5["Onset acuity\nw = 0.066 (from free-text duration)"]
+    A6["Transmissibility\nw = 0.044 (WHO IHR, per-disease table)"]
 
     ROOT --> A1
     ROOT --> A2
@@ -206,13 +208,17 @@ graph TD
 
 ### 5.2 Band Mapping (ESI-aligned)
 
+Score = `round(acuity × 9) + 1`, so the range is 1–10 (not 0–10).
+
 | AHP Score | Band | ESI Level | Action |
 |---|---|---|---|
-| 8–10 | EMERGENCY | ESI-1 / ESI-2 | Immediate dispatch |
-| 5–7 | URGENT | ESI-2 / ESI-3 | Urgent referral |
-| 0–4 | NON-URGENT | ESI-4 / ESI-5 | Home care guidance |
+| 8–10 | EMERGENCY | ESI-2 (8–9) / ESI-1 (10) | Immediate dispatch |
+| 4–7 | URGENT | ESI-3 | Urgent referral |
+| 1–3 | NON-URGENT | ESI-4 (3) / ESI-5 (1–2) | Home care guidance |
 
-Additionally, any confirmed WHO IMNCI danger sign (`convulsions`, `lethargic_or_unconscious`, etc.) triggers a **hard override** directly to EMERGENCY, bypassing the score.
+Additionally, any confirmed WHO IMNCI danger sign (`convulsions`, `lethargic_or_unconscious`, etc.) triggers a **hard override**: the AHP score is forced to 10 / EMERGENCY **and the `ClassificationResult.label` is escalated to EMERGENCY** so the Routing Agent dispatches. `None` (not assessed) never triggers it. (Before Oct 2026 the override only changed the attached `EmergencyResult`, not the label, so an adult with a confirmed danger sign and a MODERATE disease was never routed.)
+
+**Measured behaviour (1,000-case run, Oct 2026):** on the 801 CONFIDENT cases the AHP band agrees with the disease-tier band 62.3 % of the time. It never scores *below* the disease tier, but it scores one band *above* it for 253/323 MODERATE+MILD diseases and 49/309 SEVERE diseases. The AHP band is therefore informational at the moment; the triage decision is the `label`. Cutoffs need calibrating before the band is shown to a CHW as a decision.
 
 ### 5.3 Output Schema
 
@@ -255,19 +261,18 @@ flowchart TD
 
 ### 6.2 Red-flag Tokens (emergency-first examples)
 
-| Token | Natural question (Groq-generated) |
+| Token | Template question (Groq rephrases when available) |
 |---|---|
-| `radiating_pain` | "Does the chest pain spread to the left arm or jaw?" |
-| `altered_sensorium` | "Is the patient confused, disoriented, or difficult to understand?" |
-| `loss_of_consciousness` | "Did the patient lose consciousness or faint at any point?" |
-| `sudden_severe_headache` | "Did the headache come on very suddenly — the worst headache of their life?" |
-| `weakness_in_limbs` | "Does the patient have sudden weakness or numbness on one side of the body?" |
+| `altered_sensorium` | "Is the patient confused, unusually drowsy, or difficult to wake?" |
+| `weakness_of_one_body_side` | "Is the patient experiencing weakness of one body side?" |
+
+The selector can only ever ask about tokens in the 131-token vocabulary. Questions such as "does the chest pain spread to the arm or jaw?" (`radiating_pain`) listed in earlier revisions cannot be generated because that token does not exist in the dataset.
 
 ### 6.3 Max Turns and Safety Behaviour
 
 - Maximum 3 follow-up turns enforced
 - After max turns: return current best result (worst-case severity still active)
-- "No" answers: symptom token is NOT added (positive-evidence-only model)
+- "No" answers: symptom token is NOT added (positive-evidence-only model), but the token IS excluded from later turns, so the same question is never asked twice in one session
 - Streamlit UI: shows urgency banner (red for EMERGENCY_PRIORITY, blue for ROUTINE), Yes / No / Skip buttons, and a collapsible Q&A trail
 
 ---
@@ -403,10 +408,12 @@ Used **only** for phrasing follow-up questions in natural language — not for c
 #### CP Decision Breakdown (across 1,000 cases)
 
 ```
-CONFIDENT (→ AHP Stage 2)       :  793 / 1000  =  79.3%
-UNCERTAIN (→ follow-up loop)    :  206 / 1000  =  20.6%
+CONFIDENT (→ AHP Stage 2)       :  801 / 1000  =  80.1%
+UNCERTAIN (→ follow-up loop)    :  198 / 1000  =  19.8%
 ABSTAIN   (→ refer to facility) :    1 / 1000  =   0.1%
 ```
+
+Re-run Oct 2026 through `rules_engine.classify()` (previously the script called `classify_with_cp()` directly, so neither the worst-case rule F3 nor the AHP scorer was exercised). Confusion matrix and binary metrics unchanged; decision split moved from 793/206/1 after the CP nonconformity scores became out-of-fold.
 
 ### 9.2 100-Case Evaluation (Baseline vs. Post-Fix)
 
@@ -434,7 +441,7 @@ In both the 100-case and 1000-case runs, the true disease appeared in the CP pre
 flowchart LR
     subgraph CLASSIFIER["disease_classifier.py"]
         F1["F1 · Emergency Prior Boost\nEMERGENCY_SAFETY_FACTOR = 3.0\nMultiplies EMERGENCY disease\nposteriors × 3 before calibration\nCompensates for 2-of-41 class imbalance"]
-        F2["F2 · Red-flag Token Override\n_RED_FLAG_TOKENS = {radiating_pain,\naltered_sensorium, loss_of_consciousness,\nsudden_severe_headache, weakness_in_limbs}\nIf present + EMERGENCY in set\n→ collapse to CONFIDENT EMERGENCY"]
+        F2["F2 · Red-flag Token Override\n_RED_FLAG_TOKENS = {altered_sensorium,\nweakness_of_one_body_side}\nIf present + EMERGENCY in set\n→ collapse to CONFIDENT EMERGENCY\n(Paralysis only; Heart attack has\nno discriminating token in the CSV)"]
     end
     subgraph RULEENGINE["rules_engine.py"]
         F3["F3 · Worst-case Severity\nUNCERTAIN path uses min(SEVERITY_RANK)\nacross all diseases in prediction set\nHeart attack in set → CHW sees EMERGENCY\nnever URGENT"]
@@ -502,15 +509,16 @@ sequenceDiagram
 | Rule engine — ear problems axis | ✗ Not built | Step 2 of build order |
 | Rule engine — nutritional status / anaemia | ✗ Not built | Step 2 of build order |
 | Rule engine — young infant (< 2 mo) | ✗ Not built | Returns INCOMPLETE_ASSESSMENT |
-| CP gate (Fix F1 + F2) | ✅ Complete | |
-| AHP Stage 2 scorer | ✅ Complete | CR = 0.0205 |
-| Follow-up question selector | ✅ Complete | Emergency-first + info-gain |
-| Groq question phrasing + template fallback | ✅ Complete | |
-| Streamlit adaptive follow-up UI | ✅ Complete | Max 3 turns |
-| Programmatic adaptive API (`classify_with_adaptive_followup`) | ✅ Complete | |
+| CP gate (Fix F1 + F2) | ✅ Complete | Tested in `tests/test_cp_ahp_adaptive.py` (added Oct 2026; had no tests before) |
+| AHP Stage 2 scorer | ✅ Complete, band uncalibrated | CR = 0.020; band runs ~1 tier above disease severity on most non-urgent diseases (see §5.2) |
+| Follow-up question selector | ✅ Complete | Emergency-first + info-gain; tested |
+| Groq question phrasing + template fallback | ✅ Complete | Fallback path tested |
+| Streamlit adaptive follow-up UI | ✅ Complete | Max 3 turns; crashed on `clf._kb` until Oct 2026 |
+| Programmatic adaptive API (`classify_with_adaptive_followup`) | ✅ Complete | Same crash fixed; "No" no longer re-asks the same question |
 | Agent 1 → Rule Engine wiring | ✅ Wired | |
 | Agent 1 → Rule Engine end-to-end NLP test | ✗ Not tested | Clean tokens used in evaluation |
 | Negative evidence in follow-up ("No" penalises a disease) | ✗ Not implemented | Positive evidence only |
+| Pediatric dysentery / persistent diarrhoea | ✗ Not built | `blood_in_stool` and `duration_days` exist on the schema but `rules_engine` never reads them |
 
 ---
 
@@ -535,7 +543,13 @@ The ≥ 95% coverage guarantee holds only if the deployment symptom distribution
 When a CHW answers "No" to a follow-up question, that answer is not used to penalise the corresponding disease. The classifier only sees positive symptom tokens. This makes the follow-up loop less efficient — it may need more turns than theoretically necessary.
 
 ### L7 — Duplicate Follow-up Logic
-The Streamlit UI (`_start_adaptive` / `_answer_adaptive`) and the programmatic API (`classify_with_adaptive_followup`) are separate implementations of the adaptive loop. If one is patched, the other does not automatically follow.
+The Streamlit UI (`_start_adaptive` / `_answer_adaptive`) and the programmatic API (`classify_with_adaptive_followup`) are separate implementations of the adaptive loop. If one is patched, the other does not automatically follow. (Both received the same two fixes in Oct 2026; the duplication itself remains.)
+
+### L8 — Isotonic Calibrator Applied Outside Its Fitted Range
+The isotonic regressor is fitted on (top-1 raw posterior → P(top-1 is correct)). `classify_with_cp()` applies it to every disease's posterior, not only the top one. Monotonicity preserves the ranking, so the prediction set is still well-ordered, but the "calibrated posterior" reported for non-top diseases is not a calibrated probability of that disease.
+
+### L9 — Pediatric Danger Signs Used as the Adult Override
+`score_emergency()` applies the four WHO IMCI general danger signs (a 2–59 month construct) as the adult hard override. Convulsions and lethargy/unconsciousness are defensible red flags at any age; "vomits everything" and "not able to drink or breastfeed" are pediatric criteria and have not been validated as adult emergency triggers.
 
 ---
 
@@ -559,4 +573,4 @@ The Streamlit UI (`_start_adaptive` / `_answer_adaptive`) and the programmatic A
 
 ---
 
-*Document generated from the implementation state as of September 2026. Rule engine version: post-fixes F1–F4.*
+*Document generated from the implementation state as of September 2026, corrected October 2026 against the code (AHP attributes/weights, band cutoffs, red-flag set, calibration method, test status, L8–L9). Rule engine version: post-fixes F1–F4 plus the October repair commits.*

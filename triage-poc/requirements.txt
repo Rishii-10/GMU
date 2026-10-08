@@ -9,8 +9,12 @@ pytest>=8.0
 faiss-cpu>=1.8,<2.0
 sentence-transformers>=2.6,<3.0
 
-# Required from Milestone 7 onward (Agent 2: DBSCAN + RAG):
-# scikit-learn>=1.4
+# Rules Engine Stage 1 (app/disease_classifier.py): IsotonicRegression for
+# calibrating Naive Bayes posteriors ahead of the Conformal Prediction gate.
+# Imported when DiseaseClassifier is constructed, so this is a hard
+# dependency of rules_engine.classify(), not an optional milestone.
+# (Also the planned Agent 2 DBSCAN dependency.)
+scikit-learn>=1.4
 
 # Routing Agent (Agent 3, app/routing/, app/integrations/geo.py) — in use.
 # OpenRouteService is a plain HTTP API, uses requests above; no extra SDK.

@@ -397,6 +397,26 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
         f"override: {emergency.override_triggered}."
     )
 
+    # Danger-sign hard override must reach the LABEL, not just the attached
+    # EmergencyResult. Everything downstream (Routing Agent dispatch, the
+    # Streamlit banner, home-care vs. referral guidance) keys off
+    # result.label; before this, an adult with a confirmed danger sign
+    # (e.g. convulsions=True) and a MODERATE disease got label=MODERATE, no
+    # facility routing, while emergency_result said score 10 / EMERGENCY.
+    # The design doc's rule is "any confirmed WHO IMCI danger sign triggers
+    # a hard override directly to EMERGENCY, bypassing the score"; apply it
+    # to the label. The disease name stays as `condition` for the report.
+    # Only confirmed-True signs fire (None never does, see
+    # emergency_scorer._danger_sign_override), and a label already at
+    # EMERGENCY is left alone.
+    if emergency.override_triggered and SEVERITY_RANK[label] > SEVERITY_RANK[ClassificationLabel.EMERGENCY]:
+        reasoning.append(
+            f"Danger-sign hard override: label escalated {label.value} -> EMERGENCY "
+            f"(disease-tier severity for {top.name!r} was {label.value}; a confirmed "
+            "general danger sign outranks it)."
+        )
+        label = ClassificationLabel.EMERGENCY
+
     return ClassificationResult(
         label=label,
         condition=top.name,

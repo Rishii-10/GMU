@@ -27,7 +27,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.disease_classifier import get_default_classifier, severity_for_disease
 from app.disease_kb import normalize_disease_name, normalize_symptom_token
-from app.schemas import ClassificationLabel
+from app.rules_engine import classify
+from app.schemas import AgeGroup, ClassificationLabel, DangerSigns, ExtractedCase
+
+# Every case is scored through rules_engine.classify() as an adult with no
+# danger-sign information, so the full adult path runs: CP gate, worst-case
+# severity on UNCERTAIN (fix F3), AHP Stage 2 on CONFIDENT. The earlier
+# version of this script called classify_with_cp() directly and scored
+# prediction_set[0], which bypassed the rules engine entirely and never
+# exercised F3 or the AHP scorer.
+EVAL_AGE_MONTHS = 480
 
 random.seed(42)
 
@@ -118,13 +127,25 @@ def run_evaluation():
         if i % 100 == 0:
             print(f"  ... evaluated {i}/1000", flush=True)
         cp = clf.classify_with_cp(tokens, alpha=0.05)
+        case = ExtractedCase(
+            raw_symptom_text=" ".join(tokens),
+            age_months=EVAL_AGE_MONTHS,
+            age_group=AgeGroup.ADULT,
+            danger_signs=DangerSigns(),
+            symptom_tokens=tokens,
+        )
+        result = classify(case)
 
-        if cp.decision == "ABSTAIN" or not cp.prediction_set:
+        if result.label == ClassificationLabel.INCOMPLETE_ASSESSMENT:
+            # ABSTAIN: scored as NON_URGENT so an abstained emergency counts
+            # as a miss, not a free pass.
             pred_disease = "ABSTAIN"
             pred_band = "NON_URGENT"
         else:
-            pred_disease = cp.prediction_set[0]
-            pred_band = severity_to_band(severity_for_disease(pred_disease))
+            pred_disease = result.condition or "?"
+            # Label comes from the rules engine (worst-case over the
+            # prediction set when UNCERTAIN), not from the top candidate.
+            pred_band = severity_to_band(result.label)
 
         cm[true_band][pred_band] += 1
         log.append({
@@ -133,9 +154,12 @@ def run_evaluation():
             "true_band": true_band,
             "pred_disease": pred_disease,
             "pred_band": pred_band,
+            "label": result.label.value,
             "decision": cp.decision,
             "set_size": cp.set_size,
             "prediction_set": cp.prediction_set,
+            "ahp_band": result.emergency_result.band.value if result.emergency_result else None,
+            "ahp_score": result.emergency_result.score if result.emergency_result else None,
             "tokens": tokens,
         })
 
@@ -194,6 +218,21 @@ def print_report(ev: dict) -> None:
         cnt = decisions.count(d)
         print(f"  CP decision {d}: {cnt}/1000 = {cnt/10:.1f}%")
 
+    # AHP Stage 2 band vs. disease-tier band on CONFIDENT cases. These are
+    # two different scales (AHP is a 6-attribute acuity score; the label is
+    # a per-disease lookup), so disagreement is reported, not treated as an
+    # error -- but it is the first time the AHP output is measured at all.
+    confident = [e for e in ev["log"] if e["decision"] == "CONFIDENT" and e["ahp_band"]]
+    agree = sum(1 for e in confident if e["ahp_band"] == e["pred_band"])
+    ahp_agreement = agree / max(len(confident), 1)
+    print(f"  AHP band == disease-tier band on CONFIDENT cases: {agree}/{len(confident)} = {ahp_agreement:.1%}")
+    ahp_cm = {b: {b2: 0 for b2 in BANDS} for b in BANDS}
+    for e in confident:
+        ahp_cm[e["pred_band"]][e["ahp_band"]] += 1
+    print("  AHP band by disease-tier band (rows=disease tier, cols=AHP band):")
+    for b in BANDS:
+        print(f"    {b:<12}" + "  ".join(f"{ahp_cm[b][b2]:>6}" for b2 in BANDS))
+
     # Save
     out   = Path(__file__).parent / "eval_1000_results.json"
     out2  = Path(__file__).parent / "eval_1000_log.json"
@@ -206,6 +245,12 @@ def print_report(ev: dict) -> None:
             for band in BANDS
         },
         "decision_counts": {d: decisions.count(d) for d in ("CONFIDENT", "UNCERTAIN", "ABSTAIN")},
+        "ahp_vs_disease_tier_on_confident": {
+            "n": len(confident),
+            "agreement": round(ahp_agreement, 4),
+            "matrix": ahp_cm,
+        },
+        "scored_through": "app.rules_engine.classify (adult, age_months=%d, danger signs unassessed)" % EVAL_AGE_MONTHS,
         "n": 1000,
         "targets": TARGETS,
     }
