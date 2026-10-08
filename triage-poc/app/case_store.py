@@ -101,7 +101,7 @@ class CaseStore:
         elsewhere (app.disambiguation, app.disease_classifier)."""
         cursor = self._conn.execute(
             "SELECT case_id, area, recorded_at, symptom_tokens, label, probable_disease, "
-            "language, raw_text_hash FROM cases WHERE area = ? ORDER BY recorded_at DESC LIMIT ?",
+            "language, raw_text_hash FROM cases WHERE area = ? ORDER BY recorded_at DESC, rowid DESC LIMIT ?",
             (area, limit),
         )
         columns = [d[0] for d in cursor.description]

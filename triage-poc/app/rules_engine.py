@@ -322,6 +322,7 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
             missing_fields=missing,
             abstention_triggered=True,
             candidates=cp.candidates[:5] if cp.candidates else [],
+            prediction_set=cp.prediction_set,  # lets the follow-up loop keep narrowing
             case_id=case.case_id,
         )
 
@@ -371,7 +372,9 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
         )
 
     # --- Stage 1: confident — prediction set size 1 ---
-    top = cp.candidates[0]
+    # Use the disease CP actually chose: after the red-flag override it can
+    # differ from the top-ranked candidate.
+    top = next(c for c in cp.candidates if c.name == cp.prediction_set[0])
     label = severity_for_disease(top.name)
 
     reasoning = [
@@ -383,7 +386,7 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
         f"Severity lookup (disease_severity.csv): {top.name!r} → {label.value}.",
     ]
     if len(cp.candidates) > 1:
-        others = [f"{c.name} ({c.score:.3f})" for c in cp.candidates[1:4]]
+        others = [f"{c.name} ({c.score:.3f})" for c in cp.candidates if c.name != top.name][:3]
         reasoning.append(f"Other candidates considered: {others}.")
 
     # --- Stage 2: AHP emergency scoring ---
