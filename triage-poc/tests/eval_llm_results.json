@@ -1,0 +1,32 @@
+{
+  "model": "llama3.2:3b",
+  "triage_baseline": {
+    "n_attempted": 304,
+    "n_scored": 304,
+    "invalid_response_rate": 0.0,
+    "transport_error_rate": 0.0,
+    "under_triage_rate_emergency_severe": 0.169,
+    "under_triage_count": 24,
+    "emergency_severe_n": 142,
+    "over_triage_rate_mild_moderate": 0.8272,
+    "exact_tier_accuracy": 0.4539,
+    "label_distribution": {
+      "SEVERE": 251,
+      "MILD": 11,
+      "MODERATE": 36,
+      "EMERGENCY": 6
+    }
+  },
+  "determinism": {
+    "cases": 25,
+    "repeats_per_case": 3,
+    "label_stability_rate": 1.0
+  },
+  "extraction_reliability": {
+    "n": 30,
+    "schema_valid_rate": 0.8667,
+    "extraction_failure_rate": 0.1333,
+    "expected_token_recall": 0.8,
+    "note": "end-to-end E1+E2 on labelled real phrases; the OOS harness scores tokens directly and excludes this error source (L4)"
+  }
+}

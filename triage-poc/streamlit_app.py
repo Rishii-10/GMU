@@ -343,8 +343,7 @@ with st.sidebar.expander("📊 Model evaluation (held-out)"):
         st.caption(
             "Out-of-sample (leave-profiles-out) + short-message (2–4 tokens) — the "
             "regime a real caller is in. For triage, selective risk and under-triage "
-            "are the headline, not accuracy. (The in-sample F1 = 1.00 is only a "
-            "pipeline-wiring check.)"
+            "are the headline, not accuracy."
         )
         c1, c2 = st.columns(2)
         with c1:
@@ -355,18 +354,40 @@ with st.sidebar.expander("📊 Model evaluation (held-out)"):
                      "emergency/severe short messages surfaced below their true tier.",
             )
             st.metric("Selective risk (CONFIDENT)", f"{_ev['selective_risk_on_confident']:.1%}")
-            st.metric("Consistency (token order)", f"{_ev['consistency_label_agreement']:.1%}")
+            st.metric(
+                "Subset robustness",
+                f"{_ev['subset_robustness_label_agreement']:.1%}",
+                help=f"Across {_ev['subset_robustness_pairs_compared']} profiles, how often two "
+                     "DIFFERENT symptom subsets of the same patient give the same tier.",
+            )
         with c2:
             st.metric("Over-triage (MILD/MOD)", f"{_ev['over_triage_rate_mild_moderate']:.1%}",
                       help="The bounded cost of zero under-triage.")
             st.metric("Ask-or-abstain rate", f"{_ev['abstain_or_ask_rate']:.1%}")
             st.metric("CP coverage", f"{_ev['cp_coverage_true_in_set']:.1%}")
-        _base = _ev.get("baseline_flat_threshold", {}).get("under_triage_rate_emergency_severe")
-        if _base is not None:
+        _cmp = _ev.get("comparisons") or {}
+        if _cmp:
             st.caption(
-                f"Flat-threshold baseline under-triage: **{_base:.1%}** vs framework "
-                f"**{_ev['under_triage_rate_emergency_severe']:.1%}** — the framework "
-                "dominates on the number that matters. "
+                "**Baseline and ablations** — under-triage / over-triage, scored on the "
+                "same held-out short messages:"
+            )
+            st.dataframe(
+                [
+                    {
+                        "system": _name,
+                        "under-triage": f"{_m['under_triage_rate_emergency_severe']:.1%}",
+                        "over-triage": f"{_m['over_triage_rate_mild_moderate']:.1%}",
+                        "confident": f"{_m['coverage_confident_fraction']:.1%}",
+                    }
+                    for _name, _m in [("full_system", _ev)] + sorted(_cmp.items())
+                ],
+                hide_index=True,
+                use_container_width=True,
+            )
+            st.caption(
+                "Under-triage is bounded by conformal miscoverage **by design** "
+                f"(worst-case labelling of a set containing the truth, α={_ev.get('alpha')}), "
+                "so it is a guarantee whose premise — coverage — is what is measured here. "
                 f"Decisions: {_ev.get('decision_counts', {})}."
             )
 

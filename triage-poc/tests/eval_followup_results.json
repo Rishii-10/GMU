@@ -1,0 +1,135 @@
+{
+  "regime": "out-of-sample (leave-profiles-out 5-fold) + short message (2-4 tokens); answers read from the held-out patient's real symptom profile",
+  "max_turns": 3,
+  "answer_source": "ground-truth lookup in data/disease_symptoms.csv (no simulation)",
+  "strategies": {
+    "selector": {
+      "present_only_production": {
+        "n_cases": 304,
+        "n_started_uncertain": 103,
+        "resolution_rate_of_uncertain": 0.2039,
+        "mean_questions_on_uncertain": 2.6893,
+        "mean_set_size_before": 4.3301,
+        "mean_set_size_after": 3.3107,
+        "set_size_reduction": 1.0194,
+        "resolved_correctly_rate": 0.2039,
+        "truth_retained_in_set_rate": 1.0,
+        "under_triage_before": 0.0,
+        "under_triage_after": 0.0,
+        "over_triage_before": 0.216,
+        "over_triage_after": 0.216
+      },
+      "with_negative_evidence": {
+        "n_cases": 304,
+        "n_started_uncertain": 103,
+        "resolution_rate_of_uncertain": 0.7184,
+        "mean_questions_on_uncertain": 2.1845,
+        "mean_set_size_before": 4.3301,
+        "mean_set_size_after": 1.9709,
+        "set_size_reduction": 2.3592,
+        "resolved_correctly_rate": 0.6214,
+        "truth_retained_in_set_rate": 0.9638,
+        "under_triage_before": 0.0,
+        "under_triage_after": 0.0211,
+        "over_triage_before": 0.216,
+        "over_triage_after": 0.0494
+      }
+    },
+    "frequency": {
+      "present_only_production": {
+        "n_cases": 304,
+        "n_started_uncertain": 103,
+        "resolution_rate_of_uncertain": 0.1068,
+        "mean_questions_on_uncertain": 2.9709,
+        "mean_set_size_before": 4.3301,
+        "mean_set_size_after": 3.3592,
+        "set_size_reduction": 0.9709,
+        "resolved_correctly_rate": 0.068,
+        "truth_retained_in_set_rate": 0.977,
+        "under_triage_before": 0.0,
+        "under_triage_after": 0.007,
+        "over_triage_before": 0.216,
+        "over_triage_after": 0.1914
+      },
+      "with_negative_evidence": {
+        "n_cases": 304,
+        "n_started_uncertain": 103,
+        "resolution_rate_of_uncertain": 0.4078,
+        "mean_questions_on_uncertain": 2.6505,
+        "mean_set_size_before": 4.3301,
+        "mean_set_size_after": 2.4854,
+        "set_size_reduction": 1.8447,
+        "resolved_correctly_rate": 0.3204,
+        "truth_retained_in_set_rate": 0.9572,
+        "under_triage_before": 0.0,
+        "under_triage_after": 0.007,
+        "over_triage_before": 0.216,
+        "over_triage_after": 0.1111
+      }
+    },
+    "random": {
+      "present_only_production": {
+        "n_cases": 304,
+        "n_started_uncertain": 103,
+        "resolution_rate_of_uncertain": 0.2427,
+        "mean_questions_on_uncertain": 2.6796,
+        "mean_set_size_before": 4.3301,
+        "mean_set_size_after": 3.4369,
+        "set_size_reduction": 0.8932,
+        "resolved_correctly_rate": 0.2233,
+        "truth_retained_in_set_rate": 0.9901,
+        "under_triage_before": 0.0,
+        "under_triage_after": 0.0,
+        "over_triage_before": 0.216,
+        "over_triage_after": 0.1358
+      },
+      "with_negative_evidence": {
+        "n_cases": 304,
+        "n_started_uncertain": 103,
+        "resolution_rate_of_uncertain": 0.5243,
+        "mean_questions_on_uncertain": 2.4369,
+        "mean_set_size_before": 4.3301,
+        "mean_set_size_after": 2.4175,
+        "set_size_reduction": 1.9126,
+        "resolved_correctly_rate": 0.5146,
+        "truth_retained_in_set_rate": 0.9836,
+        "under_triage_before": 0.0,
+        "under_triage_after": 0.0,
+        "over_triage_before": 0.216,
+        "over_triage_after": 0.0741
+      }
+    }
+  },
+  "negative_evidence": {
+    "present_only_production": {
+      "n_cases": 304,
+      "n_started_uncertain": 103,
+      "resolution_rate_of_uncertain": 0.2039,
+      "mean_questions_on_uncertain": 2.6893,
+      "mean_set_size_before": 4.3301,
+      "mean_set_size_after": 3.3107,
+      "set_size_reduction": 1.0194,
+      "resolved_correctly_rate": 0.2039,
+      "truth_retained_in_set_rate": 1.0,
+      "under_triage_before": 0.0,
+      "under_triage_after": 0.0,
+      "over_triage_before": 0.216,
+      "over_triage_after": 0.216
+    },
+    "with_negative_evidence": {
+      "n_cases": 304,
+      "n_started_uncertain": 103,
+      "resolution_rate_of_uncertain": 0.7184,
+      "mean_questions_on_uncertain": 2.1845,
+      "mean_set_size_before": 4.3301,
+      "mean_set_size_after": 1.9709,
+      "set_size_reduction": 2.3592,
+      "resolved_correctly_rate": 0.6214,
+      "truth_retained_in_set_rate": 0.9638,
+      "under_triage_before": 0.0,
+      "under_triage_after": 0.0211,
+      "over_triage_before": 0.216,
+      "over_triage_after": 0.0494
+    }
+  }
+}

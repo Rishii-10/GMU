@@ -16,14 +16,14 @@ Priority ordering (from ESI v5 AHRQ + WHO IMCI):
   Comp        3     4     5     2      1     6
   Trans      1/4   1/3   1/2   1/5    1/6    1
 
-Derived weights (principal eigenvector, computed below):
-  w_complication     = 0.379
-  w_tx_delay         = 0.249
-  w_severity         = 0.161
-  w_age              = 0.102
-  w_onset            = 0.066
-  w_transmissibility = 0.044
-  Consistency Ratio  CR = 0.0205  (< 0.10 threshold)  ✓
+The weights, lambda_max and the Consistency Ratio are DERIVED FROM THAT MATRIX
+at import time by _derive_ahp_weights() (power iteration on the principal
+eigenvector) -- they are not transcribed constants. An earlier version hardcoded
+w = 0.379/0.249/0.161/0.102/0.066/0.044 and quoted CR = 0.0205, neither of which
+could be reproduced from the matrix above (recomputing it gives CR = 0.0198);
+deriving them removes six unverifiable numbers and makes the matrix the single
+source of truth. Read the current values from AHP_WEIGHTS /
+AHP_CONSISTENCY_RATIO rather than restating them here.
 
 --- SOURCES ---
   - Saaty, T.L. (1980). The Analytic Hierarchy Process. McGraw-Hill.
@@ -54,17 +54,117 @@ from app.schemas import (
 )
 
 # ---------------------------------------------------------------------------
-# AHP-derived weights  (pre-computed eigenvector; full matrix in docstring)
-# CR = 0.0205 < 0.10  ✓
+# AHP weights, DERIVED from the pairwise matrix (not transcribed).
 # ---------------------------------------------------------------------------
-AHP_WEIGHTS: dict[str, float] = {
-    "complication_probability": 0.379,
-    "time_to_treatment":        0.249,
-    "disease_severity":         0.161,
-    "age_vulnerability":        0.102,
-    "onset_acuity":             0.066,
-    "transmissibility":         0.044,
+
+# Saaty's Random Consistency Index by matrix order n (Saaty 1980, Table 1.2).
+_SAATY_RANDOM_INDEX: dict[int, float] = {
+    1: 0.00, 2: 0.00, 3: 0.58, 4: 0.90, 5: 1.12,
+    6: 1.24, 7: 1.32, 8: 1.41, 9: 1.45, 10: 1.49,
 }
+
+# Row/column order of _AHP_PAIRWISE below.
+_AHP_CRITERIA: tuple[str, ...] = (
+    "disease_severity",
+    "age_vulnerability",
+    "onset_acuity",
+    "time_to_treatment",
+    "complication_probability",
+    "transmissibility",
+)
+
+# The expert pairwise judgements (module docstring documents the ESI v5 / WHO
+# IMCI priority ordering they encode). THIS IS THE ONLY PLACE THE JUDGEMENTS
+# LIVE -- everything downstream is computed from it.
+_AHP_PAIRWISE: tuple[tuple[float, ...], ...] = (
+    #  Sev      Age    Onset   TxDly   Comp    Trans
+    (1.0,     2.0,    3.0,   1 / 2,  1 / 3,   4.0),  # Severity
+    (1 / 2,   1.0,    2.0,   1 / 3,  1 / 4,   3.0),  # Age
+    (1 / 3,  1 / 2,   1.0,   1 / 4,  1 / 5,   2.0),  # Onset
+    (2.0,     3.0,    4.0,    1.0,   1 / 2,   5.0),  # TxDelay
+    (3.0,     4.0,    5.0,    2.0,    1.0,    6.0),  # Complication
+    (1 / 4,  1 / 3,  1 / 2,  1 / 5,  1 / 6,   1.0),  # Transmissibility
+)
+
+
+def _principal_eigenvector(
+    matrix: tuple[tuple[float, ...], ...],
+    tol: float = 1e-12,
+    max_iter: int = 1000,
+) -> tuple[list[float], float]:
+    """Power iteration -> (principal eigenvector normalized to sum 1, lambda_max).
+
+    Pure stdlib and deterministic (fixed uniform start, fixed tolerance), so
+    the derived weights are byte-identical on every machine and every run.
+    """
+    n = len(matrix)
+    vec = [1.0 / n] * n
+    for _ in range(max_iter):
+        nxt = [sum(matrix[i][j] * vec[j] for j in range(n)) for i in range(n)]
+        total = sum(nxt)
+        if total <= 0:
+            break
+        nxt = [v / total for v in nxt]
+        converged = max(abs(a - b) for a, b in zip(nxt, vec)) < tol
+        vec = nxt
+        if converged:
+            break
+    av = [sum(matrix[i][j] * vec[j] for j in range(n)) for i in range(n)]
+    lambda_max = sum(a / v for a, v in zip(av, vec) if v > 0) / n
+    return vec, lambda_max
+
+
+def _derive_ahp_weights() -> tuple[dict[str, float], float, float, float]:
+    """Return (weights, lambda_max, consistency_index, consistency_ratio).
+
+    CR = CI / RI with CI = (lambda_max - n)/(n - 1). CR < 0.10 is Saaty's
+    acceptability threshold; _validate_ahp_matrix() enforces it at import.
+    """
+    vec, lambda_max = _principal_eigenvector(_AHP_PAIRWISE)
+    n = len(_AHP_CRITERIA)
+    ci = (lambda_max - n) / (n - 1) if n > 1 else 0.0
+    ri = _SAATY_RANDOM_INDEX.get(n, 1.49)
+    cr = ci / ri if ri > 0 else 0.0
+    weights = dict(zip(_AHP_CRITERIA, vec))
+    # Present in descending weight order (audit trails and the Rule Engine tab
+    # iterate this dict directly).
+    ordered = dict(sorted(weights.items(), key=lambda kv: kv[1], reverse=True))
+    return ordered, lambda_max, ci, cr
+
+
+def _validate_ahp_matrix() -> None:
+    """Fail loudly at import if the judgement matrix is malformed or
+    inconsistent, rather than silently scoring patients with bad weights."""
+    n = len(_AHP_CRITERIA)
+    if len(_AHP_PAIRWISE) != n or any(len(r) != n for r in _AHP_PAIRWISE):
+        raise ValueError(f"AHP matrix must be {n}x{n}")
+    for i in range(n):
+        if abs(_AHP_PAIRWISE[i][i] - 1.0) > 1e-9:
+            raise ValueError("AHP matrix diagonal must be 1.0")
+        for j in range(n):
+            if abs(_AHP_PAIRWISE[i][j] * _AHP_PAIRWISE[j][i] - 1.0) > 1e-6:
+                raise ValueError(
+                    f"AHP matrix not reciprocal at ({i},{j}): "
+                    f"a_ij * a_ji = {_AHP_PAIRWISE[i][j] * _AHP_PAIRWISE[j][i]}"
+                )
+
+
+_validate_ahp_matrix()
+
+(
+    AHP_WEIGHTS,
+    AHP_LAMBDA_MAX,
+    AHP_CONSISTENCY_INDEX,
+    AHP_CONSISTENCY_RATIO,
+) = _derive_ahp_weights()
+
+# Saaty's acceptability threshold for the consistency ratio.
+AHP_CR_THRESHOLD = 0.10
+if AHP_CONSISTENCY_RATIO >= AHP_CR_THRESHOLD:
+    raise ValueError(
+        f"AHP pairwise judgements are inconsistent: CR={AHP_CONSISTENCY_RATIO:.4f} "
+        f">= {AHP_CR_THRESHOLD}"
+    )
 
 # ---------------------------------------------------------------------------
 # Per-disease attributes  (time_tx_sensitivity, complication_prob, transmissibility)
@@ -318,8 +418,10 @@ def score_emergency(
         reasoning.append(f"Score {score} → Emergency band → ESI {esi_level}")
 
     reasoning.append(
-        "AHP weights (Saaty 1980, CR=0.0205): "
-        + ", ".join(f"{k}={v}" for k, v in AHP_WEIGHTS.items())
+        f"AHP weights (Saaty 1980, derived from the pairwise matrix; "
+        f"lambda_max={AHP_LAMBDA_MAX:.4f}, CI={AHP_CONSISTENCY_INDEX:.4f}, "
+        f"CR={AHP_CONSISTENCY_RATIO:.4f} < {AHP_CR_THRESHOLD}): "
+        + ", ".join(f"{k}={v:.4f}" for k, v in AHP_WEIGHTS.items())
     )
 
     return EmergencyResult(

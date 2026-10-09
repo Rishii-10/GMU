@@ -1,0 +1,165 @@
+{
+  "regime": "out-of-sample (leave-profiles-out 5-fold) + short message (2-4 tokens)",
+  "production": {
+    "alpha": 0.1,
+    "emergency_safety_factor": 3.0
+  },
+  "alpha_sweep": [
+    {
+      "alpha": 0.01,
+      "cp_coverage_true_in_set": 0.9836,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.1728,
+      "coverage_confident_fraction": 0.6908,
+      "abstain_or_ask_rate": 0.3092,
+      "mean_set_size": 1.8586,
+      "lac_empty_fallback_rate": 0.0,
+      "bound_holds_under_triage_le_alpha": true,
+      "coverage_at_least_1_minus_alpha": false
+    },
+    {
+      "alpha": 0.02,
+      "cp_coverage_true_in_set": 0.9605,
+      "under_triage_rate_emergency_severe": 0.007,
+      "over_triage_rate_mild_moderate": 0.142,
+      "coverage_confident_fraction": 0.7434,
+      "abstain_or_ask_rate": 0.2566,
+      "mean_set_size": 1.5559,
+      "lac_empty_fallback_rate": 0.0,
+      "bound_holds_under_triage_le_alpha": true,
+      "coverage_at_least_1_minus_alpha": false
+    },
+    {
+      "alpha": 0.05,
+      "cp_coverage_true_in_set": 0.9572,
+      "under_triage_rate_emergency_severe": 0.0282,
+      "over_triage_rate_mild_moderate": 0.1235,
+      "coverage_confident_fraction": 0.8125,
+      "abstain_or_ask_rate": 0.1875,
+      "mean_set_size": 1.625,
+      "lac_empty_fallback_rate": 0.1349,
+      "bound_holds_under_triage_le_alpha": true,
+      "coverage_at_least_1_minus_alpha": true
+    },
+    {
+      "alpha": 0.1,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.216,
+      "coverage_confident_fraction": 0.6612,
+      "abstain_or_ask_rate": 0.3388,
+      "mean_set_size": 2.1283,
+      "lac_empty_fallback_rate": 0.3388,
+      "bound_holds_under_triage_le_alpha": true,
+      "coverage_at_least_1_minus_alpha": true
+    },
+    {
+      "alpha": 0.15,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.2346,
+      "coverage_confident_fraction": 0.6118,
+      "abstain_or_ask_rate": 0.3882,
+      "mean_set_size": 2.2039,
+      "lac_empty_fallback_rate": 0.3882,
+      "bound_holds_under_triage_le_alpha": true,
+      "coverage_at_least_1_minus_alpha": true
+    },
+    {
+      "alpha": 0.2,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.2654,
+      "coverage_confident_fraction": 0.5822,
+      "abstain_or_ask_rate": 0.4178,
+      "mean_set_size": 2.2368,
+      "lac_empty_fallback_rate": 0.4178,
+      "bound_holds_under_triage_le_alpha": true,
+      "coverage_at_least_1_minus_alpha": true
+    },
+    {
+      "alpha": 0.3,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.2654,
+      "coverage_confident_fraction": 0.5822,
+      "abstain_or_ask_rate": 0.4178,
+      "mean_set_size": 2.2368,
+      "lac_empty_fallback_rate": 0.4178,
+      "bound_holds_under_triage_le_alpha": true,
+      "coverage_at_least_1_minus_alpha": true
+    }
+  ],
+  "emergency_factor_sweep": [
+    {
+      "emergency_safety_factor": 1.0,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.2099,
+      "coverage_confident_fraction": 0.6612,
+      "abstain_or_ask_rate": 0.3388,
+      "mean_set_size": 2.1382,
+      "lac_empty_fallback_rate": 0.3388
+    },
+    {
+      "emergency_safety_factor": 1.5,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.2099,
+      "coverage_confident_fraction": 0.6612,
+      "abstain_or_ask_rate": 0.3388,
+      "mean_set_size": 2.1382,
+      "lac_empty_fallback_rate": 0.3388
+    },
+    {
+      "emergency_safety_factor": 2.0,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.2099,
+      "coverage_confident_fraction": 0.6612,
+      "abstain_or_ask_rate": 0.3388,
+      "mean_set_size": 2.1382,
+      "lac_empty_fallback_rate": 0.3388
+    },
+    {
+      "emergency_safety_factor": 3.0,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.216,
+      "coverage_confident_fraction": 0.6612,
+      "abstain_or_ask_rate": 0.3388,
+      "mean_set_size": 2.1283,
+      "lac_empty_fallback_rate": 0.3388
+    },
+    {
+      "emergency_safety_factor": 5.0,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.216,
+      "coverage_confident_fraction": 0.6546,
+      "abstain_or_ask_rate": 0.3454,
+      "mean_set_size": 2.1414,
+      "lac_empty_fallback_rate": 0.3454
+    },
+    {
+      "emergency_safety_factor": 10.0,
+      "cp_coverage_true_in_set": 1.0,
+      "under_triage_rate_emergency_severe": 0.0,
+      "over_triage_rate_mild_moderate": 0.216,
+      "coverage_confident_fraction": 0.6546,
+      "abstain_or_ask_rate": 0.3454,
+      "mean_set_size": 2.1414,
+      "lac_empty_fallback_rate": 0.3454
+    }
+  ],
+  "bound_holds_at_every_alpha": true,
+  "alphas_failing_nominal_coverage": [
+    0.01,
+    0.02
+  ],
+  "emergency_boost_improves_under_triage": false,
+  "emergency_boost_worsens_over_triage": true,
+  "alphas_dominating_production": [
+    0.01
+  ]
+}

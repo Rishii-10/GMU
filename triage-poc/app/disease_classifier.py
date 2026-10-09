@@ -148,7 +148,9 @@ def _clean_candidate_scores(probs: dict[str, float]) -> dict[str, float]:
 
 
 def _boost_emergency_scores(
-    scores: dict[str, float], emergency_names: "frozenset[str]"
+    scores: dict[str, float],
+    emergency_names: "frozenset[str]",
+    factor: float = EMERGENCY_SAFETY_FACTOR,
 ) -> dict[str, float]:
     """Fix F1 -- multiply EMERGENCY-tier diseases' scores by
     EMERGENCY_SAFETY_FACTOR and renormalize, to compensate for the 2-of-41
@@ -160,11 +162,17 @@ def _boost_emergency_scores(
     DiseaseKB) rather than looked up via severity_for_disease(): this runs
     INSIDE DiseaseClassifier.__init__ (CP calibration), and the kb-less
     severity_for_disease() would call get_default_classifier() and recurse into
-    construction."""
-    if not any(d in emergency_names for d in scores):
+    construction.
+
+    `factor` defaults to the production constant and exists so the sensitivity
+    analysis (tests/evaluate_sensitivity.py) can RE-CALIBRATE the conformal gate
+    at a different boost rather than changing it only at inference, which would
+    break exchangeability between calibration and inference. factor = 1.0
+    disables the boost."""
+    if factor == 1.0 or not any(d in emergency_names for d in scores):
         return dict(scores)
     boosted = {
-        d: (s * EMERGENCY_SAFETY_FACTOR if d in emergency_names else s)
+        d: (s * factor if d in emergency_names else s)
         for d, s in scores.items()
     }
     total = sum(boosted.values())
@@ -307,10 +315,19 @@ class DiseaseClassifier:
     answers classify_diseases() queries as plain arithmetic, no I/O.
     """
 
-    def __init__(self, kb: DiseaseKB, data_dir: Path | str = DEFAULT_DATA_DIR):
+    def __init__(
+        self,
+        kb: DiseaseKB,
+        data_dir: Path | str = DEFAULT_DATA_DIR,
+        emergency_factor: float = EMERGENCY_SAFETY_FACTOR,
+    ):
         self.kb = kb
         self.vocabulary = kb.vocabulary
         self._vocab_size = len(self.vocabulary)
+        # Injectable so the sensitivity analysis can rebuild a fully
+        # re-calibrated classifier at a different boost. Production always
+        # uses the module default.
+        self._emergency_factor = emergency_factor
 
         rows_by_disease, total_rows = _load_symptom_rows(Path(data_dir) / "disease_symptoms.csv")
         self._rows_by_disease = rows_by_disease
@@ -491,7 +508,9 @@ class DiseaseClassifier:
                 # Emergency-boosted renormalized score of the TRUE class,
                 # computed exactly as classify_diseases()+F1 do at inference.
                 scored = _boost_emergency_scores(
-                    _clean_candidate_scores(probs), self._emergency_disease_names
+                    _clean_candidate_scores(probs),
+                    self._emergency_disease_names,
+                    self._emergency_factor,
                 )
                 cp_cal_nonconformity_scores.append(1.0 - scored.get(true_disease, 0.0))
 
@@ -658,7 +677,9 @@ class DiseaseClassifier:
         # calibration uses, so the conformity score is the same quantity in
         # both places (exchangeability).
         boosted_map = _boost_emergency_scores(
-            {c.name: c.score for c in candidates}, self._emergency_disease_names
+            {c.name: c.score for c in candidates},
+            self._emergency_disease_names,
+            self._emergency_factor,
         )
         candidates = sorted(
             [c.model_copy(update={"score": round(boosted_map[c.name], 4)}) for c in candidates],
