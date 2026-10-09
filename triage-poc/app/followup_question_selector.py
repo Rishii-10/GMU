@@ -46,6 +46,37 @@ _SEVERITY_RANK: dict[str, int] = {
 # worth asking about. Below this it's a noise association in the dataset.
 _MIN_EMERGENCY_FREQ = 0.20
 
+# Stage 4 (FU-1): a follow-up question is only CLINICALLY RELEVANT if it asks
+# about a symptom that is characteristic of a disease actually in the
+# differential. A token must appear in at least this fraction of at least one
+# prediction-set disease's rows to be eligible -- otherwise the selector could
+# pick a token that statistically splits the set in the DATASET but is
+# incoherent for the diseases in contention (the live cough+fever case asked an
+# exertional-heart-rate question about a Common-Cold/Pneumonia/TB/Asthma set).
+_MIN_RELEVANCE_FREQ = 0.30
+
+
+def _relevant_tokens(
+    prediction_set: list[str],
+    known_tokens: set[str],
+    rows_by_disease: dict[str, list[list[str]]],
+    vocabulary: list[str],
+) -> list[str]:
+    """Candidate tokens that are characteristic of at least one disease in the
+    prediction set (freq >= _MIN_RELEVANCE_FREQ in some set disease's rows),
+    excluding already-known tokens. This is the clinically-plausible
+    discriminator pool both strategies draw from."""
+    pool = []
+    for token in vocabulary:
+        if token in known_tokens:
+            continue
+        if any(
+            _symptom_freq(d, token, rows_by_disease) >= _MIN_RELEVANCE_FREQ
+            for d in prediction_set
+        ):
+            pool.append(token)
+    return pool
+
 # Fallback question templates for when the Groq backend is unavailable.
 # Keys are normalized dataset vocabulary tokens.
 _QUESTION_TEMPLATES: dict[str, str] = {
@@ -143,9 +174,7 @@ def _emergency_first_token(
     best_score = -1.0
     best_rationale = ""
 
-    for token in vocabulary:
-        if token in known_tokens:
-            continue
+    for token in _relevant_tokens(prediction_set, known_tokens, rows_by_disease, vocabulary):
         freq_em = _symptom_freq(emergency_disease, token, rows_by_disease)
         if freq_em < _MIN_EMERGENCY_FREQ:
             continue
@@ -189,9 +218,7 @@ def _info_gain_token(
     best_ig = -1.0
     best_rationale = ""
 
-    for token in vocabulary:
-        if token in known_tokens:
-            continue
+    for token in _relevant_tokens(prediction_set, known_tokens, rows_by_disease, vocabulary):
         freqs = {d: _symptom_freq(d, token, rows_by_disease) for d in prediction_set}
         p_present = sum(posteriors.get(d, 1.0 / n) * freqs[d] for d in prediction_set)
         p_absent = 1.0 - p_present

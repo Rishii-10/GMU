@@ -43,6 +43,7 @@ Derived weights (principal eigenvector, computed below):
 from __future__ import annotations
 
 import math
+import re
 from typing import Optional
 
 from app.schemas import (
@@ -162,6 +163,22 @@ def _age_vulnerability(age_months: Optional[int]) -> tuple[float, str]:
     return 0.85, "≥65 years (geriatric — masked compensatory responses, ESI v5)"
 
 
+# Word-boundary matching -- a plain `"hr" in d` substring test (the pre-Stage-4
+# bug, AHP-2) fired "acute" for "tHRee days" and "cHRonic", exactly backwards.
+# Devanagari/Bengali markers have no ASCII word boundary so they are matched as
+# bare substrings (OR'd in).
+_ACUTE_ONSET_RE = re.compile(
+    r"\b(?:hour|hours|hr|hrs|minute|minutes|min|mins|sudden|acute|today|now|just)\b"
+    r"|घंट|ঘণ্টা",
+    re.IGNORECASE,
+)
+_GRADUAL_ONSET_RE = re.compile(
+    r"\b(?:week|weeks|month|months|year|years|chronic|long[- ]?standing)\b"
+    r"|सप्ताह|महीन|সপ্তাহ",
+    re.IGNORECASE,
+)
+
+
 def _onset_acuity_from_duration(duration: Optional[str]) -> tuple[float, str]:
     """Infer onset acuity from the free-text duration field.
 
@@ -169,10 +186,9 @@ def _onset_acuity_from_duration(duration: Optional[str]) -> tuple[float, str]:
     """
     if not duration:
         return 0.5, "duration unknown (subacute default)"
-    d = duration.lower()
-    if any(w in d for w in ("hour", "hr", "घंट", "ঘণ্টা")):
+    if _ACUTE_ONSET_RE.search(duration):
         return 1.0, f"acute onset ({duration}) — ESI high-risk trigger"
-    if any(w in d for w in ("week", "month", "year", "सप्ताह", "महीन", "সপ্তাহ")):
+    if _GRADUAL_ONSET_RE.search(duration):
         return 0.2, f"chronic/gradual onset ({duration})"
     return 0.5, f"subacute onset ({duration})"
 

@@ -218,7 +218,7 @@ Score = `round(acuity × 9) + 1`, so the range is 1–10 (not 0–10).
 
 Additionally, any confirmed WHO IMNCI danger sign (`convulsions`, `lethargic_or_unconscious`, etc.) triggers a **hard override**: the AHP score is forced to 10 / EMERGENCY **and the `ClassificationResult.label` is escalated to EMERGENCY** so the Routing Agent dispatches. `None` (not assessed) never triggers it. (Before Oct 2026 the override only changed the attached `EmergencyResult`, not the label, so an adult with a confirmed danger sign and a MODERATE disease was never routed.)
 
-**Measured behaviour (1,000-case run, Oct 2026):** on the 801 CONFIDENT cases the AHP band agrees with the disease-tier band 62.3 % of the time. It never scores *below* the disease tier, but it scores one band *above* it for 253/323 MODERATE+MILD diseases and 49/309 SEVERE diseases. The AHP band is therefore informational at the moment; the triage decision is the `label`. Cutoffs need calibrating before the band is shown to a CHW as a decision.
+**Measured behaviour (1,000-case run):** on the CONFIDENT cases the AHP band agrees with the disease-tier band ~62 % of the time; it never scores *below* the disease tier, but scores one band *above* it for most MODERATE+MILD diseases. **Defined role (Stage 4):** AHP is a within-tier **prioritizer**, not a second label. The triage decision is the `label` (disease tier / worst-case / danger-sign override); AHP's 1–10 score and ESI level order patients *within* a tier for dispatch and populate the ESI field a facility uses — it is explicitly NOT read as the triage label. (Onset acuity, one of its inputs, was also fixed in Stage 4 — a substring bug had scored "three days"/"chronic" as acute.)
 
 ### 5.3 Output Schema
 
@@ -353,11 +353,13 @@ flowchart TD
 | Property | Value |
 |---|---|
 | Method | Analytic Hierarchy Process (Saaty 1980) |
-| Attributes | 6 (symptom severity, onset speed, vital signs, age vulnerability, comorbidities, duration) |
-| Consistency Ratio | CR = 0.0205 (threshold < 0.10 per Saaty) |
-| Highest weight | Symptom severity: w = 0.412 |
-| Output | Score 0–10, ESI band, override flag |
-| Band mapping | Score ≥ 8 → EMERGENCY · 5–7 → URGENT · 0–4 → NON-URGENT |
+| Attributes | 6 (complication probability, time-to-treatment, disease-severity tier, age vulnerability, onset acuity, transmissibility) — the attributes `score_emergency()` actually computes (see §5.1; NOT "symptom severity / vital signs / comorbidities / duration") |
+| Weights | 0.379 / 0.249 / 0.161 / 0.102 / 0.066 / 0.044 (principal eigenvector; recomputed 0.382/0.250/0.160/0.101/0.064/0.043) |
+| Consistency Ratio | CR ≈ 0.020 (< 0.10 per Saaty) |
+| Highest weight | Complication probability: w = 0.379 |
+| Output | Score 1–10 (= round(acuity×9)+1), ESI level 1–5, band, override flag |
+| Band mapping | 8–10 → EMERGENCY · 4–7 → URGENT · 1–3 → NON-URGENT |
+| Role (Stage 4) | A within-tier **prioritizer**, not a label-setter: the triage label is the disease severity tier / worst-case / danger-sign override; AHP's score+ESI order patients WITHIN a tier for dispatch. The danger-sign override forces score 10 / ESI-1. |
 
 ### 8.5 Follow-up Question Generation (Groq LLM)
 
