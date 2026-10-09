@@ -54,7 +54,7 @@ present in the message, set it to null (for booleans, null means "not stated", N
 strict JSON only, matching exactly this shape:
 
 {
-  "symptom": string or null,
+  "symptoms": [string, ...],
   "duration": string or null,
   "severity": "mild" | "moderate" | "severe" | "unknown",
   "age_group": "infant" | "child" | "adult" | "elderly" | null,
@@ -78,6 +78,16 @@ strict JSON only, matching exactly this shape:
     "drinks_poorly_or_not_able": true | false | null
   }
 }
+
+SYMPTOMS -- "symptoms" is a JSON array. List EVERY distinct symptom the message mentions as its own \
+separate string item, in the caller's own words (lightly normalized to a short phrase). Do NOT merge \
+several symptoms into one item, and do NOT drop any symptom. Keep each item to a single symptom. \
+Preserve the caller's language/script (do not translate). If the message states no symptom, return []. \
+Examples:
+  - "I am 45, chest pain, sweating, breathless and vomiting" -> "symptoms": ["chest pain", "sweating", "breathlessness", "vomiting"]
+  - "pet dard aur ulti ho rahi hai" -> "symptoms": ["pet dard", "ulti"]
+  - "50 yo with cough and fever" -> "symptoms": ["cough", "fever"]
+  - "baby not feeding well" -> "symptoms": ["not feeding well"]
 
 Only set a danger_signs/cough/diarrhea field to true or false if the message actually states or \
 clearly implies it; otherwise leave it null. Exam-only signs (breathing rate count, chest indrawing, \
@@ -400,6 +410,52 @@ def _sanitize_enum_fields(parsed: dict) -> dict:
     return parsed
 
 
+def _normalize_symptom_fields(parsed: dict) -> dict:
+    """Normalize Agent 1's symptom output to the list contract.
+
+    The extraction prompt now asks for `"symptoms": [...]` (one item per
+    distinct symptom) so a multi-symptom message is no longer collapsed to a
+    single phrase -- the live 3B model was returning only the first symptom
+    in the old single `"symptom"` string (e.g. a heart-attack message gave
+    just "chest pain", dropping sweating/breathlessness/vomiting). This
+    produces the canonical `parsed["symptoms"]` list used to build
+    symptom_tokens.
+
+    Backward compatible: a backend or test double that still returns the
+    older single `"symptom"` string (RegexBackend, the per-file test
+    doubles) is accepted -- its string is clause-split into the list and the
+    exact legacy `symptom` string is left untouched. When the new list key
+    is present, `symptom` is set to the joined list so the pediatric
+    disambiguate() path and the adult-route presence check
+    (followup_policy.missing_required) keep working unchanged.
+    """
+    parsed = dict(parsed)
+    raw = parsed.get("symptoms", None)
+
+    def _collect(phrases: list) -> list[str]:
+        items: list[str] = []
+        for x in phrases:
+            if x is None:
+                continue
+            for clause in _split_symptom_clauses(str(x)):
+                s = clause.strip()
+                if s and s not in items:
+                    items.append(s)
+        return items
+
+    if isinstance(raw, (list, str)):
+        # New list contract (or a lone string the model emitted under the new key).
+        source = raw if isinstance(raw, list) else [raw]
+        items = _collect(source)
+        parsed["symptoms"] = items
+        parsed["symptom"] = ", ".join(items) if items else None
+    else:
+        # Legacy single "symptom" string: keep it verbatim, derive the list.
+        legacy = parsed.get("symptom")
+        parsed["symptoms"] = _collect([legacy]) if isinstance(legacy, str) else []
+    return parsed
+
+
 # --- Deterministic <2-month infant-age safety net -----------------------------
 #
 # Phase 1 Part B found that llama3.2:3b (and small models generally) copy the
@@ -505,6 +561,7 @@ def extract_case(
     a malformed extraction must not silently become a classified case."""
     parsed = backend.extract(raw_text, context=context)
     parsed = _sanitize_enum_fields(parsed)
+    parsed = _normalize_symptom_fields(parsed)
     parsed = _apply_infant_age_floor(raw_text, parsed)
     try:
         return ExtractedCase(
@@ -730,7 +787,18 @@ def apply_disambiguation_fallback(
 # resulting clause is still matched via a single top-1 nearest-neighbor
 # call (match_dataset_symptom() itself is unchanged) -- this only changes
 # WHAT text gets matched, not how matching works.
-_SYMPTOM_CLAUSE_SPLIT = re.compile(r"\s*(?:,|;|&|\band\b)\s*", re.IGNORECASE)
+# Separators between symptoms. English "and"/"&"/comma/semicolon as before,
+# PLUS code-mixed conjunctions the live runs exposed: a Hinglish message like
+# "pet dard aur ulti" was matched as ONE clause and embedded to the wrong
+# token (yellowing_of_eyes) because "aur" was not a separator; splitting on it
+# yields "pet dard" -> stomach_pain and "ulti" -> vomiting (both already
+# aliased). "+"/"/" and the Hindi (और/तथा) and Tamil (மற்றும்) words for "and"
+# are included for the same reason. Devanagari/Tamil words are matched without
+# \b (ASCII word boundaries do not apply to those scripts).
+_SYMPTOM_CLAUSE_SPLIT = re.compile(
+    r"\s*(?:,|;|&|\+|/|और|तथा|மற்றும்|\band\b|\baur\b|\bplus\b)\s*",
+    re.IGNORECASE,
+)
 
 
 def _split_symptom_clauses(text: str) -> list[str]:
@@ -778,24 +846,41 @@ def _apply_disambiguation(case: ExtractedCase, disambiguator: Disambiguator) -> 
     any future implementation that doesn't support it simply leave
     symptom_tokens untouched.
     """
-    if case.symptom is None:
+    # Phrases to match to dataset tokens: prefer the structured `symptoms`
+    # list (Agent 1 now returns one item per distinct symptom); fall back to
+    # clause-splitting the legacy single `symptom` string for callers or
+    # backends that only set that (e.g. manually-built test cases, the
+    # RegexBackend). Each phrase is still further clause-split as a safety
+    # net, in case one item carries more than one symptom.
+    source_phrases = list(case.symptoms) or (
+        _split_symptom_clauses(case.symptom) if case.symptom else []
+    )
+    if case.symptom is None and not source_phrases:
         return case
-    original_symptom_text = case.symptom
-    result = disambiguator.disambiguate(case.symptom)
-    updates: dict = {"disambiguation_confidence": result.confidence}
-    if result.matched_category is not None:
-        updates["symptom"] = result.matched_category
+
+    updates: dict = {}
+    # Pediatric cough/diarrhea category disambiguation still runs once on the
+    # combined symptom text, exactly as before. Skipped when there is no
+    # combined text to run it on (then there is no fallback step either).
+    result = None
+    if case.symptom is not None:
+        result = disambiguator.disambiguate(case.symptom)
+        updates["disambiguation_confidence"] = result.confidence
+        if result.matched_category is not None:
+            updates["symptom"] = result.matched_category
 
     new_tokens: list[str] = []
-    for clause in _split_symptom_clauses(original_symptom_text):
-        dataset_result = disambiguator.match_dataset_symptom(clause)
-        token = dataset_result.matched_category
-        if token is not None and token not in case.symptom_tokens and token not in new_tokens:
-            new_tokens.append(token)
+    for phrase in source_phrases:
+        for clause in _split_symptom_clauses(phrase):
+            token = disambiguator.match_dataset_symptom(clause).matched_category
+            if token is not None and token not in case.symptom_tokens and token not in new_tokens:
+                new_tokens.append(token)
     if new_tokens:
         updates["symptom_tokens"] = case.symptom_tokens + new_tokens
 
     case = case.model_copy(update=updates)
+    if result is None:
+        return case
     return apply_disambiguation_fallback(case, result)
 
 

@@ -157,7 +157,18 @@ class ExtractedCase(BaseModel):
 
     case_id: Optional[str] = None
     raw_symptom_text: str
-    symptom: Optional[str] = None
+    symptom: Optional[str] = None  # legacy single/combined phrase (joined from `symptoms`); kept for the pediatric disambiguate() path and adult-route presence check
+    symptoms: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Every distinct symptom phrase Agent 1 extracted, one per item "
+            "(e.g. ['chest pain', 'sweating', 'breathlessness', 'vomiting']). "
+            "The LLM now returns a list so a multi-symptom message is not "
+            "collapsed to one phrase; each item is matched to a dataset token "
+            "to build symptom_tokens. Empty = none extracted yet, not a "
+            "negative finding. `symptom` is the joined legacy view of this."
+        ),
+    )
     duration: Optional[str] = None
     severity: Severity = Severity.UNKNOWN
     age_group: Optional[AgeGroup] = None
