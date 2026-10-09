@@ -14,19 +14,19 @@
   - note: the first command prints nothing until this file is committed.
 - ENFORCEMENT HOOK: repo-root `CLAUDE.md` (auto-loaded by Claude Code on any machine that clones the repo) points here and restates the update rule.
 - SYNC_STAMP:
-  - date: 2026-10-08
-  - branch: `fix`; base commit: `a192ded` (== `main` == `origin/main`)
-  - tree state described: base + UNCOMMITTED working-tree changes listed in §16.2 (if those are now committed, update this line + §16)
-  - test status at sync: 386 collected → 383 passed, 1 failed (stale test, §13), 2 xfailed (Ollama llama3.2:3b + faiss + sentence-transformers installed)
-  - verification: 4 parallel read-only fact-extraction agents wrote the facts; 1 independent verifier agent checked every section against code (21 findings, all applied). Not re-verifiable read-only: full test pass count (from the session's own run) and live-UI observations (§14.1).
+  - date: 2026-10-09
+  - branch: `9th-october`; HEAD `7cfa703` (Merge PR #6 from Rishii-10/22sep). The old `fix`-branch §16.2 "uncommitted" changes are now COMMITTED on this branch (§16.1 commit list).
+  - tree state described: HEAD `7cfa703` + UNCOMMITTED Stage-0 working-tree changes listed in §16.2.
+  - test status at sync: 414 collected → 412 passed, 0 failed, 2 xfailed. Run on the new Python 3.11 `.venv` with Ollama llama3.2:3b up + faiss + sentence-transformers installed. Ollama-gated tests auto-skip when no server is reachable (CI).
+  - verification: Stage 0 of the 9th-october implementation plan (this session). Facts grounded by `git log`/`git diff a192ded..HEAD`, direct `pytest --collect-only`/run, and a headless Streamlit boot (HTTP 200 on 3.11). Live UI tabs not re-observed this session.
 
 ## §1 SNAPSHOT
 - WHAT: "Beyond Triage / Rural Health Triage POC". Input = free-text patient/caregiver symptom message (English, Hindi, Hinglish). Output = triage label + per-role views; for EMERGENCY/SEVERE a nearest eligible facility + LLM doctor handoff report; when adult diagnosis is uncertain, adaptive yes/no follow-up questions to the caller.
-- LANGUAGE/RUNTIME: Python 3.11.9 in use. `streamlit_app.py` uses `X | None` annotations without `from __future__ import annotations` → requires Python ≥ 3.10.
+- LANGUAGE/RUNTIME: project runs in `triage-poc/.venv` (Homebrew `python@3.11`, 3.11.17), created in Stage 0. `streamlit_app.py` uses `X | None` annotations without `from __future__ import annotations` → requires Python ≥ 3.10 (the machine's only system Python is 3.9.6, which cannot launch the UI — hence the venv).
 - PROCESS MODEL: one Python process (Streamlit). No web API, no background workers, no persistent DB in the app path (facility DB = SQLite `:memory:` rebuilt on demand). Session state = Streamlit `st.session_state` (per browser session).
 - LLM: local Ollama `llama3.2:3b` at `http://localhost:11434` — the only LLM backend the app uses. 3 LLM call sites (§5.3).
 - LABELS: `EMERGENCY` > `SEVERE` > `MODERATE` > `MILD`; plus `INCOMPLETE_ASSESSMENT` (needs more info).
-- HEALTH: working tree runs end-to-end (UI verified manually 2026-10-08). Committed HEAD `a192ded` is BROKEN: `app/disease_classifier.py::_fit_calibration_and_thresholds` references undefined `held_out_rows` → `NameError` on every `DiseaseClassifier()` construction; fixed only in the uncommitted tree (§16.2).
+- HEALTH: runs end-to-end. The old D-HEAD `held_out_rows` NameError is FIXED and committed (commit `32c969d`); committed HEAD `7cfa703` constructs `DiseaseClassifier()` cleanly. Streamlit UI boots headless on the 3.11 venv (HTTP 200 verified Stage 0). Full suite 412 passed / 0 failed / 2 xfailed (§13).
 
 ## §2 GLOSSARY
 - case = `ExtractedCase`; result = `ClassificationResult` (both `app/schemas.py`).
@@ -38,7 +38,7 @@
 - gateway = `app/integrations/language_gateway.py::LanguageGateway`.
 - ASHA = community health worker (one UI tab). Village = routing location chosen in sidebar.
 
-## §3 REPO MAP (tracked files: 72 at base commit; + 1 untracked test + this file + CLAUDE.md)
+## §3 REPO MAP (77 tracked files at HEAD `7cfa703`; + gitignored/untracked: `triage-poc/.venv` (3.11), `triage-poc/tests/eval_runs/`)
 ```
 / (repo root)
 ├─ CODEBASE_CONTEXT.md            THIS FILE (agent context, source of truth)
@@ -47,12 +47,15 @@
 ├─ .gitignore                     __pycache__/ *.pyc .venv/ venv/ .pytest_cache/ *.sqlite *.index .DS_Store .env .claude/settings.local.json triage-poc/venv_audit/
 ├─ .env                           UNTRACKED+gitignored, machine-local (see §4.3)
 ├─ .claude/launch.json            config "triage-poc": python -m streamlit run triage-poc/streamlit_app.py --server.headless true --server.port 8501
-├─ README.md                      project overview (partly outdated, §15)
-├─ ARCHITECTURE.md                older architecture (outdated, §15)
-├─ AGENT1_README.md               Agent 1 deep-dive (partly outdated)
-├─ CHANGES_AGE_HANDLING.md        historical changelog of young-infant branch
-├─ RULE_ENGINE_DESIGN.md          superseded proposal (nothing in it was built)
-├─ Rule engine final.md           paper-style spec; Stage 2 matches code, Stage 1 does not
+├─ .github/workflows/ci.yml       CI (added Stage 0): Python 3.11 → install reqs → pytest; runs on push + PR; Ollama-gated tests auto-skip (no server in CI)
+├─ README.md                      root index pointing into docs/ (22sep reorg; partly outdated, §15)
+├─ CHANGES_AGE_HANDLING.md        historical changelog of young-infant branch (stays at root)
+├─ docs/                          22sep doc consolidation (merged via PR #6):
+│  ├─ README.md                   former root README body (partly outdated, §15)
+│  ├─ ARCHITECTURE.md             older architecture (outdated, §15)
+│  ├─ AGENT1_README.md            Agent 1 deep-dive (partly outdated, §15)
+│  └─ RULE_ENGINE_DESIGN_FINAL.md copy of triage-poc/rule_engine_design_final.md (§15)
+│  (RULE_ENGINE_DESIGN.md and "Rule engine final.md" were DELETED by the 22sep reorg)
 └─ triage-poc/
    ├─ streamlit_app.py            ONLY UI (frontend + orchestration), 4 role tabs + caller follow-up chat
    ├─ demo.py                     CLI: 3 English samples → extract_and_classify (Ollama); no FAISS/translation/routing/follow-up
@@ -62,7 +65,7 @@
    ├─ .claude/launch.json         config "triage-streamlit": sh run_streamlit.sh, port 8501
    ├─ .streamlit/config.toml      dark theme (base dark, primary #5AA9FF, bg #0E1117, secondary #161B22, text #E6EDF3)
    ├─ .gitignore                  .venv/ __pycache__/ *.pyc .env .DS_Store .pytest_cache/
-   ├─ rule_engine_design_final.md "implemented design" doc (several confirmed mismatches, §15)
+   ├─ rule_engine_design_final.md PRIMARY design reference (owner directive 2026-10-09). Corrected Oct 2026 (commit 69cb649): §5 AHP now code-aligned (weights 0.379/0.249/0.161/0.102/0.066/0.044; bands 8–10/4–7/1–3). BUT §8.2–8.4 still STALE (20% holdout, CR 0.0205, weight 0.412, band 5–7) → fix in Stages 3–4. Keep updated when a stage changes the mechanisms it documents; code still wins on conflict (§15).
    ├─ app/
    │  ├─ schemas.py               shared pydantic v2 contract (ExtractedCase, ClassificationResult, enums)
    │  ├─ agent1_extraction.py     Agent 1: LLM backends, extraction, disambiguation wiring, follow-up flows A/B/C
@@ -89,9 +92,9 @@
    │  ├─ disease_symptoms.csv     4920 rows, 41 diseases × 120 rows, 131 tokens
    │  ├─ disease_precautions.csv  41 rows, ≤4 precautions each
    │  └─ disease_severity.csv     41 rows, disease → EMERGENCY/SEVERE/MODERATE/MILD (no clinical provenance documented)
-   └─ tests/                      18 test_*.py (17 tracked + test_adaptive_followup_loop.py untracked), fixtures/, 3 eval scripts, 5 eval JSONs
+   └─ tests/                      19 test_*.py (ALL tracked now; + test_cp_ahp_adaptive.py NEW = 28 tests covering CP/AHP/red-flag override/adaptive loop; test_adaptive_followup_loop.py now tracked = 4 tests), fixtures/, 3 eval scripts + eval_output.py (shared out-dir resolver, Stage 0), 5 eval JSON baselines, eval_runs/ (gitignored default run output)
 ```
-- NOT present: pyproject.toml, setup.cfg, pytest.ini, tox.ini, conftest.py, Makefile, Dockerfile, CI workflows (.github/), triage-poc/.venv, data/*.sqlite.
+- NOT present: pyproject.toml, setup.cfg, pytest.ini, tox.ini, conftest.py, Makefile, Dockerfile, data/*.sqlite. NOW present (added/created Stage 0): `.github/workflows/ci.yml`, `triage-poc/.venv` (3.11, gitignored).
 
 ## §4 RUNTIME, DEPENDENCIES, ENV VARS / API KEYS, HOW TO RUN
 ### §4.1 Dependencies
@@ -384,15 +387,16 @@
 - NOT produced anywhere: SMS/IVR/WhatsApp messages, ASHA alerts, 108 ambulance dispatch, outbreak dashboards, persisted case logs (UI), exports.
 
 ## §13 TESTS & EVALS
-### §13.1 Test suite (`triage-poc/tests/`, no conftest; 17/18 files insert triage-poc into sys.path; test_adaptive_followup_loop.py relies on pytest rootdir prepend (tests/ is a package) or PYTHONPATH=.)
+### §13.1 Test suite (`triage-poc/tests/`, no conftest; 19 test_*.py files, all tracked; most insert triage-poc into sys.path; test_adaptive_followup_loop.py / test_cp_ahp_adaptive.py rely on pytest rootdir prepend (tests/ is a package) or PYTHONPATH=.)
 | file | n | covers | gating |
 |---|---|---|---|
-| test_adaptive_followup_loop.py (UNTRACKED new) | 4 | Flow C invariants 1–4 | none |
+| test_adaptive_followup_loop.py (now tracked) | 4 | Flow C invariants 1–4 | none |
+| test_cp_ahp_adaptive.py (NEW, commit d-series) | 28 | CP gate, AHP scorer, red-flag override, adaptive loop (first direct coverage of these) | some need faiss |
 | test_age_handling.py | 68 | age None defaults, AGE_UNKNOWN, age clarifier, infant floor, young-infant escalation | 12 need Ollama |
 | test_agent1_followup.py | 9 | Flow A loop | 2 need Ollama |
 | test_calibration.py | 8 | dataset threshold calibration = 0.45 | 6 need faiss |
 | test_case_store.py | 10 | CaseStore | none |
-| test_dataset_symptom_matching.py | 19 | dataset index, aliases, clause split, end-to-end | 16 need faiss; 1 FAILS (stale) |
+| test_dataset_symptom_matching.py | 19 | dataset index, aliases, clause split, end-to-end | 16 need faiss (the former stale FAIL is FIXED Stage 0) |
 | test_disambiguation.py | 22 | pediatric index, fallback rules | 10 need faiss (1 xfail); test_fuzzy_match_above_threshold unguarded (FAILS with ImportError w/o faiss) |
 | test_disease_classifier.py | 27 | KB, classify_diseases, severity lookup | none |
 | test_disease_coverage.py | 84 | each disease top-3 / top-1 for its mode row | none |
@@ -405,30 +409,35 @@
 | test_rules_engine.py | 16 | IMNCI rules | none |
 | test_rules_engine_dataset_routing.py | 13 | age routing, INSUFFICIENT, dataset context | none |
 | test_two_followup_flows.py | 6 | Flow A vs Flow B same first question | none |
-- Total 386. Last run (2026-10-08, working tree): 383 passed, 1 failed, 2 xfailed.
-- FAILING (stale, pre-existing, also failed at 650bbca^): test_dataset_symptom_matching.py::test_pipeline_dataset_tokens_feed_disease_classifier_end_to_end — asserts probable_disease is not None for single "chest pain"; engine now abstains (CP set of 6, result.candidates capped at 5, probable_disease None). Decision pending: update test vs keep.
+- Total 414 collected. Last run (2026-10-09, 3.11 venv, Ollama up + faiss): 412 passed, 0 failed, 2 xfailed. In CI (Ollama down) the ~19 Ollama-gated tests auto-skip; faiss tests still run.
+- STALE TEST RESOLVED (Stage 0): test_dataset_symptom_matching.py::test_pipeline_dataset_tokens_feed_disease_classifier_end_to_end — rewritten to assert the correct abstain behavior (single "chest pain" → 1 token → dataset classifier produces candidates + a CP prediction_set containing "Heart attack", label INCOMPLETE_ASSESSMENT, abstention_triggered True, probable_disease None). NOTE: Stage 2 will change this behavior (an EMERGENCY disease in the set must not yield a silent INCOMPLETE) — this test must be revisited then.
 - XFAIL (documented known limitations): test_disambiguation.py::test_hinglish_diarrhea_known_limitation; test_integration_agent1_pipeline.py::test_schema_boundary_false_survives_llm_roundtrip_on_simple_negation.
 - No direct tests: emergency_scorer.py, followup_question_selector.py, classify_with_cp, parse_yes_no, demo_facilities.py, streamlit_app.py.
 - Fixtures: facilities.py (10 facilities, 5 villages), followup_scripts.py (6 scripts), symptom_calibration.py (80 labelled phrases; its docstring still says 0.65 uncalibrated).
 
-### §13.2 Eval scripts (classifier-only; NOT end-to-end)
-- All: seed 42; cases = complete rows of disease_symptoms.csv (IN-SAMPLE, the data the NB model is fit on; 3–17 symptoms each); call `classify_with_cp(tokens, 0.05)` only (no Agent 1, FAISS, rules_engine worst-case, AHP); predicted = prediction_set[0].
-- All 3 eval JSON sets regenerated on the current tree 2026-10-08 and match current code. Evals do not call rules_engine, so rules_engine changes cannot affect them; disease_classifier/data changes can → re-run all 3 after such changes and keep the regenerated JSONs.
+### §13.2 Eval scripts (seed 42; cases = complete rows of disease_symptoms.csv, IN-SAMPLE, the data NB is fit on; 3–17 symptoms each)
+- OUTPUT LOCATION (changed Stage 0): all 3 scripts now take `--write` (overwrite the tracked baseline JSONs in tests/) / `--out-dir DIR`; with neither flag they write to a fresh `tests/eval_runs/<timestamp>/` (gitignored) and NEVER touch the tracked baselines. Shared resolver `tests/eval_output.py::resolve_out_dir`. So a casual run no longer clobbers committed results. Regenerate baselines deliberately with `--write`.
+- evaluate_1000.py is now END-TO-END: it calls `app.rules_engine.classify()` (CP gate + worst-case severity + AHP), not `classify_with_cp()` in isolation (commit c7f9eff). evaluate_balanced.py and evaluate_100_cases.py still call the classifier path; predicted = prediction_set[0]. rules_engine changes CAN now affect evaluate_1000; disease_classifier/data changes can affect all 3 → re-run (`--write`) after such changes.
+- SCRIPT BUGFIX (Stage 0, not yet reflected in tracked JSON): evaluate_1000.py's AHP-confusion loop leaked its `b` loop variable over `b = ev["binary"]`, so the committed eval_1000_results.json has `"binary": "NON_URGENT"` instead of the TP/FP/FN/TN dict. Loop var renamed to `bb`; the tracked JSON will be corrected when regenerated (Stage 5).
 - evaluate_100_cases.py (stratified 4×4) → tests/eval_results.json (regenerated 2026-10-08; previous committed version was stale: 96/100, EMERGENCY TP 2 / FN 2). Current: correct 98/100, EMERGENCY 4/4, FN 0, P/R/F1 1.00, CONFIDENT 95 (all correct), UNCERTAIN 5, ABSTAIN 0.
 - evaluate_balanced.py (34/33/33) → eval_balanced_results.json + _log.json (re-run identical to committed): EMERGENCY 34/34, URGENT 32/33, NON_URGENT 33/33.
 - evaluate_1000.py (334/333/333, EMERGENCY sampled with replacement) → eval_1000_results.json + _log.json (re-run identical): EMERGENCY 334/334, URGENT 332/333, NON_URGENT 333/333; CONFIDENT 793, UNCERTAIN 206, ABSTAIN 1 (Chronic cholestasis).
 - INTERPRETATION RULE: near-perfect eval scores measure internal consistency on full in-sample symptom rows, NOT real caller performance. Real short messages carry few tokens: single tokens give 80/131 CONFIDENT, 26 UNCERTAIN, 25 ABSTAIN, and common lay symptoms (chest_pain, cough) ABSTAIN; first-message extraction/matching quality (E1/E2) is unmeasured by any eval.
 
 ## §14 CURRENT STATE
-### §14.1 Works (verified 2026-10-08)
-- Ollama llama3.2:3b extraction validated end-to-end; FAISS matching; adult CP path; IMNCI path; AHP; routing + report; Flow C in Caller tab (live UI test: "I am 30 years old and I have cough" → question → "maybe" re-asked → "nahi" → next question → "haan" → SEVERE "Please see a doctor today", box closed); test suite 383/386.
-### §14.2 Known defects (confirmed in code; not fixed)
-- D-HEAD: committed HEAD a192ded crashes (NameError held_out_rows) — fixed in uncommitted tree only.
-- D-STALE-TEST: 1 failing stale test (§13.1).
-- D-REQ: scikit-learn required but commented out in requirements.txt.
-- D-CP-TRIVIAL: q̂ = 1.0 at α = 0.05 → CP set = all NB candidates ≥ 1%; τ = 1.0 (unused path).
-- D-REDFLAG: 3 of 5 red-flag tokens not in vocabulary; weakness_in_limbs (Cervical-spondylosis marker, 0% of Paralysis rows; alias "kamzori") forces Paralysis/EMERGENCY whenever Paralysis is in the set (over-triage); frequency comments don't match CSV. OWNER DECISION 2026-10-08: keep weakness_in_limbs as a red flag (accepted over-triage) — do not remove without asking.
-- (FIXED 2026-10-08) D-REDFLAG-TOP — CONFIDENT path now labels from the CP-chosen disease (§7 E6).
+### §14.1 Works (verified 2026-10-09 Stage 0, unless noted)
+- App boots headless on the 3.11 venv (HTTP 200). Full suite 412 passed / 0 failed / 2 xfailed (414 collected) with Ollama up. CI added (`.github/workflows/ci.yml`).
+- (from 2026-10-08) Ollama llama3.2:3b extraction end-to-end; FAISS matching; adult CP path; IMNCI path; AHP; routing + report; Flow C in Caller tab (live UI test prior session). UI tabs not re-observed live this session.
+### §14.2 Known defects / state (confirmed in code)
+- (FIXED, committed `32c969d`) D-HEAD: the held_out_rows NameError is gone; HEAD builds `DiseaseClassifier()` cleanly.
+- (FIXED, Stage 0) D-STALE-TEST: the chest-pain abstain test now asserts correct abstain behavior (§13.1).
+- (FIXED, on branch) D-REQ: scikit-learn is uncommented in requirements.txt (hard dep, imported at classifier construction).
+- (RESOLVED, Stage 0) ENV-1: UI needs Python ≥3.10; the machine's system Python is 3.9.6. A 3.11 `.venv` now ships (§4.1/§4.4).
+- D-CP-TRIVIAL (STILL OPEN → Stage 3): q̂ = 1.0 at α = 0.05 → CP set = all NB candidates ≥ 1%; τ = 1.0 (unused path). The "≥95% coverage" claim is therefore trivially true (vacuous gate).
+- (RESOLVED, committed `88c04d4`) D-REDFLAG: `_RED_FLAG_TOKENS` is now `{altered_sensorium, weakness_of_one_body_side}` — both real Paralysis markers in the 131-token vocab (95%/90% of Paralysis rows, 0% elsewhere). The old problem tokens (radiating_pain, loss_of_consciousness, sudden_severe_headache, weakness_in_limbs) were removed; the weakness_in_limbs over-triage no longer applies.
+- (FIXED, committed `8add0ab`) adult danger-sign hard override now escalates `result.label` to EMERGENCY on the CONFIDENT adult path (rules_engine.py ~L412), not just the attached EmergencyResult. CAVEAT (→ Stage 2): this only fires on CONFIDENT (where AHP runs); on adult UNCERTAIN/ABSTAIN paths emergency_result is None, so a confirmed danger sign there does not yet escalate the label.
+- SAFETY-1 (STILL OPEN → Stage 2): an EMERGENCY/SEVERE disease in a ≥4 ABSTAIN set → silent INCOMPLETE_ASSESSMENT (worst-case severity only applies to 2–3 UNCERTAIN sets). The signature MI message under-triages.
+- (FIXED 2026-10-08) D-REDFLAG-TOP — CONFIDENT path labels from the CP-chosen disease (§7 E6).
 - D-ONSET: onset acuity substring "hr" matches "three", "chronic".
 - D-TZ: routing open-hours check uses UTC vs local facility hours.
 - D-HTML: LLM report inserted unescaped into HTML (Doctor tab).
@@ -460,22 +469,21 @@
 | RULE_ENGINE_DESIGN.md | superseded proposal; nothing implemented |
 | Rule engine final.md | Stage 2 formula/bands/ESI/severity+onset scores/weight order match code. Diffs: override 6 danger signs (doc) vs 4 (code, CONFIDENT path only); age bands 5–14/15–64 (doc) vs 5–13/14–64 (code); attributes 4–6 use per-disease values in code. Stage 1 not as written: presence-only NB (no absence term), no epidemiological prior, no LR/Brier/ECE/κ tooling; τ/δ reject option exists (classify_with_abstention) but is uncalled — CP runs instead |
 | triage-poc/rule_engine_design_final.md | presented as current but mismatched: AHP weights/attributes (doc 0.412/0.263/0.142/0.091/0.058/0.034 vs code 0.379/0.249/0.161/0.102/0.066/0.044), bands (doc 5–7 URGENT, 0–4 NON_URGENT vs code 4–7, ≤3), EmergencyResult types (doc float/str vs int/int), calibration (doc 80/20 vs code 5-fold), Groq phrasing (code: whichever backend; app uses Ollama), ABSTAIN stops loop (no longer), Yes/No/Skip UI (now chat), L7 duplicate logic (resolved), fix numbering F1/F2 vs code comments "Fix 2/Fix 3", class names CoughInfo/DiarrheaInfo vs CoughDifficultBreathing/DiarrheaAssessment |
-- Remote branch origin/22sep (95a874c, unmerged, docs-only): moves AGENT1_README.md + ARCHITECTURE.md to docs/; moves README body to docs/README.md and replaces root README with an index; copies (not moves) rule_engine_design_final.md to docs/; deletes RULE_ENGINE_DESIGN.md and "Rule engine final.md"; leaves CHANGES_AGE_HANDLING.md at root.
+- origin/22sep (95a874c) is now MERGED into main via PR #6 (HEAD 7cfa703). The docs-only reorg it carried is now live: AGENT1_README.md + ARCHITECTURE.md moved to docs/; README body → docs/README.md with a root README index; rule_engine_design_final.md copied to docs/RULE_ENGINE_DESIGN_FINAL.md; RULE_ENGINE_DESIGN.md and "Rule engine final.md" DELETED; CHANGES_AGE_HANDLING.md stays at root.
 
 ## §16 GIT STATE
 ### §16.1 Repo
-- remote origin https://github.com/Rishii-10/GMU.git; origin/HEAD → origin/main. Current branch `fix` at a192ded (= main = origin/main), no upstream set. Other refs: translate + origin/translate (f37fa08), origin/22sep (95a874c, the ONLY branch not merged into main), origin/rule-engine-design (02624f3), origin/young-infant-escalation (a38b18c). stash@{0} "WIP on translate: be28b4b".
-- Last commits: a192ded Merge PR #3 rule-engine-design; 02624f3 Merge origin/main into rule-engine-design; e9aec23 "y"; 650bbca Add CP gate, AHP Stage 2, adaptive follow-up, design doc; ed1111b Merge PR #2 translate.
-- Root cause of D-HEAD: merge 02624f3 combined 650bbca's 80/20 calibration code with 109e966's k-fold code, leaving `held_out_rows` undefined.
-### §16.2 Uncommitted working-tree changes at sync (2026-10-08)
-- app/disease_classifier.py: true-class posterior collected inside k-fold loop (out-of-fold); broken `held_out_rows` block removed → classifier builds.
-- app/case_store.py: ORDER BY recorded_at DESC, rowid DESC.
-- app/rules_engine.py: ABSTAIN result carries prediction_set; CONFIDENT path uses the CP-chosen disease (cp.prediction_set[0]) instead of cp.candidates[0], and "Other candidates considered" excludes it (fixes D-REDFLAG-TOP).
-- tests/eval_results.json: regenerated on current code (98/100, EMERGENCY 4/4).
-- app/agent1_extraction.py: Flow C refactor → parse_yes_no, next_followup_question, record_followup_answer; classify_with_adaptive_followup rebuilt on them + `gateway` param; never re-asks asked tokens; continues on ABSTAIN; prompt English-only ≤12 words; `clf._kb` → `clf.kb`.
-- streamlit_app.py: FAISS disambiguation added to Assess flow (cached); old Yes/No/Skip panel above tabs removed; Flow C chat + reply box in Caller tab (translated); in-place `current.update` keeps gw/dispatch; dispatch cache key adds condition; `clf._kb` fix.
-- tests/test_adaptive_followup_loop.py: new (untracked).
-- CODEBASE_CONTEXT.md, CLAUDE.md: new. FOLLOWUP_PLAN.md: deleted (was untracked, never committed).
+- remote origin https://github.com/Rishii-10/GMU.git; origin/HEAD → origin/main. Current branch `9th-october` at `7cfa703` (LOCAL only — no upstream configured, not yet pushed to origin); `7cfa703` == local `main` == `origin/main`. Other refs: origin/fix, origin/rule-engine-design (02624f3), origin/translate, origin/young-infant-escalation. origin/22sep (95a874c) is now merged (PR #6).
+- Last commits (HEAD back): 7cfa703 Merge PR #6 from Rishii-10/22sep; 7a8a68d Merge PR #5 surya/rule-engine-repair-rebased; 69cb649 Correct rule engine design doc where it disagreed with the code; c7f9eff Score the 1000-case eval through rules_engine.classify(); 8add0ab Apply the danger-sign hard override to the adult result's label; 88c04d4 Replace red-flag tokens that could never fire with ones in the dataset; 2fd1958 Fix adaptive follow-up crash (clf._kb) and stop re-asking after "No"; 32c969d Fix NameError that broke DiseaseClassifier construction; 95a874c/0a7a347 the 22sep docs-into-docs/ consolidation.
+- The changes the old sync recorded as "uncommitted on `fix`" (§16.2 in prior versions: held_out_rows fix, case_store ORDER BY, rules_engine ABSTAIN prediction_set + CP-chosen CONFIDENT disease, agent1 Flow C refactor, streamlit FAISS + chat, test_adaptive_followup_loop.py) are all COMMITTED on this branch now.
+### §16.2 Uncommitted working-tree changes at sync (2026-10-09, Stage 0 — not yet committed)
+- CODEBASE_CONTEXT.md: this Stage-0 refresh (§0 SYNC_STAMP, §1, §3, §13, §14, §15 22sep line, §16, §18).
+- triage-poc/.gitignore: + `tests/eval_runs/`.
+- tests/evaluate_1000.py, evaluate_balanced.py, evaluate_100_cases.py: write via `eval_output.resolve_out_dir` — default a fresh `tests/eval_runs/<timestamp>/`, `--write` overwrites tracked baselines, `--out-dir DIR` custom. evaluate_1000.py also: now scores end-to-end through classify() (already committed) and a Stage-0 fix of the leaked `b` loop variable (print_report now takes `out_dir`).
+- tests/eval_output.py: NEW shared out-dir resolver.
+- tests/test_dataset_symptom_matching.py: stale chest-pain test rewritten to assert correct abstain behavior.
+- .github/workflows/ci.yml: NEW CI workflow.
+- Not in git: `triage-poc/.venv` rebuilt on Homebrew python@3.11 (3.11.17); `tests/eval_runs/` default eval output (both gitignored).
 
 ## §17 TASK → FILES INDEX (open only these)
 | task | files |
@@ -501,3 +509,4 @@
 - 2026-10-08 | same tree | verifier pass: 21 corrections (§0, §4.4, §6, §7 E6/E7/E8, §9, §11, §13, §14.2, §15, §16.1); added D-REDFLAG-TOP | Claude Code session (verifier agent)
 - 2026-10-08 | same tree + rules_engine CONFIDENT fix + regenerated eval_results.json | §7 E6, §13.2, §14.2 (D-REDFLAG-TOP fixed; weakness_in_limbs kept by owner decision), §16.2; tests re-run 383 pass / 1 fail (stale) / 2 xfail; all 3 evals re-run | Claude Code session
 - 2026-10-08 | fix tree | §3, §15: added EVALUATION_METRICS.md (paper metrics proposal, docs only) | Claude Code session
+- 2026-10-09 | 9th-october @ 7cfa703 + Stage-0 uncommitted tree (§16.2) | STAGE 0 of the 9th-october plan: rebased context onto the 9th-october branch (was describing old `fix`). Updated §0 SYNC_STAMP, §1 (health/runtime: D-HEAD fixed+committed, 3.11 venv), §3 (docs→docs/, +.github CI, +eval_output.py, 77 tracked, test files 18→19), §13 (total 386→414; +test_cp_ahp_adaptive 28; stale test fixed; eval scripts out-dir + evaluate_1000 end-to-end + loop-var bugfix), §14 (D-HEAD/D-REQ/D-REDFLAG/ENV-1 resolved, SAFETY-1 + D-CP-TRIVIAL flagged open), §15 (22sep merged), §16, §18. Also marked rule_engine_design_final.md as PRIMARY reference (owner directive) in §3. Ran app on 3.11 (HTTP 200); suite 412 pass / 0 fail / 2 xfail. | Claude Code session

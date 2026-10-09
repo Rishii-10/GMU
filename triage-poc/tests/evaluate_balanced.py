@@ -126,7 +126,7 @@ def run_evaluation():
 # ---------------------------------------------------------------------------
 # Print report
 # ---------------------------------------------------------------------------
-def print_report(ev: dict):
+def print_report(ev: dict, out_dir: Path):
     cm = ev["cm"]
     b  = ev["binary"]
 
@@ -161,17 +161,20 @@ def print_report(ev: dict):
         correct = cm[band][band]
         print(f"  {band} accuracy: {correct}/{total} = {correct/max(total,1):.0%}")
 
-    out = Path(__file__).parent / "eval_balanced_results.json"
+    out = out_dir / "eval_balanced_results.json"
     with open(out, "w") as f:
         json.dump({k: v for k, v in ev.items() if k != "log"}, f, indent=2)
     # Also save full log
-    out2 = Path(__file__).parent / "eval_balanced_log.json"
+    out2 = out_dir / "eval_balanced_log.json"
     with open(out2, "w") as f:
         json.dump(ev["log"], f, indent=2)
     print(f"\nResults → {out}")
     print(f"Full log → {out2}")
 
 if __name__ == "__main__":
+    from tests.eval_output import resolve_out_dir
+
+    out_dir = resolve_out_dir("balanced 100-case classifier evaluation")
     print("Running balanced evaluation...")
     ev = run_evaluation()
-    print_report(ev)
+    print_report(ev, out_dir)

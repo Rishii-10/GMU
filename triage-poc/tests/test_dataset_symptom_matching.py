@@ -203,10 +203,26 @@ def test_pipeline_dataset_tokens_feed_disease_classifier_end_to_end(faiss_disamb
     # Full pipeline: raw text -> extraction -> FAISS dataset match ->
     # symptom_tokens -> rules_engine.classify() routes adult age_group to
     # the dataset classifier and uses symptom_tokens as its evidence.
+    #
+    # A single lay token like "chest pain" is deliberately ambiguous: the
+    # dataset classifier is reached and produces candidates, but the
+    # conformal set is too wide to commit (>=4 diseases), so the engine
+    # abstains rather than guessing a single probable_disease. This asserts
+    # the dataset path was exercised AND that it abstains honestly on one
+    # ambiguous token.
     from app.rules_engine import classify as rules_classify
+    from app.schemas import ClassificationLabel
 
     backend = _FixedResponseBackend(symptom_text="chest pain")
     case, _trail = extract_case_with_followup("chest pain", backend, disambiguator=faiss_disambiguator)
+    assert case.symptom_tokens == ["chest_pain"]
+
     result = rules_classify(case)
-    assert result.probable_disease is not None
+    # The dataset classifier was exercised: it returned candidates and a
+    # conformal prediction set wide enough to include the emergency option.
     assert result.candidates
+    assert "Heart attack" in result.prediction_set
+    # It correctly abstains on a single ambiguous token.
+    assert result.label == ClassificationLabel.INCOMPLETE_ASSESSMENT
+    assert result.abstention_triggered is True
+    assert result.probable_disease is None
