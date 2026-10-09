@@ -339,7 +339,7 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
 
     # CP gives a formal ≥95% coverage guarantee: the true disease is in the
     # returned prediction_set with probability ≥ 0.95 under exchangeability.
-    cp = clf.classify_with_cp(case.symptom_tokens, alpha=0.05)
+    cp = clf.classify_with_cp(case.symptom_tokens)  # α = DEFAULT_CP_ALPHA (0.10, Stage 3)
 
     # --- Stage 1: full abstention — prediction set ≥ 4, CHW cannot resolve ---
     if cp.decision == "ABSTAIN":

@@ -7,8 +7,8 @@
     },
     "URGENT": {
       "EMERGENCY": 0,
-      "URGENT": 332,
-      "NON_URGENT": 1
+      "URGENT": 333,
+      "NON_URGENT": 0
     },
     "NON_URGENT": {
       "EMERGENCY": 0,
@@ -16,7 +16,12 @@
       "NON_URGENT": 333
     }
   },
-  "binary": "NON_URGENT",
+  "binary": {
+    "TP": 334,
+    "FP": 0,
+    "FN": 0,
+    "TN": 666
+  },
   "metrics": {
     "precision": 1.0,
     "recall": 1.0,
@@ -24,17 +29,17 @@
   },
   "band_accuracy": {
     "EMERGENCY": 1.0,
-    "URGENT": 0.997,
+    "URGENT": 1.0,
     "NON_URGENT": 1.0
   },
   "decision_counts": {
-    "CONFIDENT": 801,
-    "UNCERTAIN": 198,
+    "CONFIDENT": 976,
+    "UNCERTAIN": 23,
     "ABSTAIN": 1
   },
   "ahp_vs_disease_tier_on_confident": {
-    "n": 801,
-    "agreement": 0.623,
+    "n": 811,
+    "agreement": 0.6227,
     "matrix": {
       "EMERGENCY": {
         "EMERGENCY": 169,
@@ -48,8 +53,8 @@
       },
       "NON_URGENT": {
         "EMERGENCY": 0,
-        "URGENT": 253,
-        "NON_URGENT": 70
+        "URGENT": 257,
+        "NON_URGENT": 76
       }
     }
   },

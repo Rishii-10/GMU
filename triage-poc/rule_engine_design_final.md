@@ -161,7 +161,7 @@ flowchart LR
 
 | Parameter | Value | Meaning |
 |---|---|---|
-| α (alpha) | 0.05 | Miscoverage budget → ≥ 95% coverage guarantee |
+| α (alpha) | `DEFAULT_CP_ALPHA` = 0.10 | Miscoverage budget → ≥ 90% nominal coverage (empirical held-out ≈ 99%). Tuned on out-of-fold data in Stage 3: it keeps q̂ non-vacuous (≈ 0.022, vs the old degenerate q̂ = 1.0 at α = 0.05), minimises under-triage, and leaves a meaningful UNCERTAIN rate so the follow-up loop has a role. |
 | `EMERGENCY_SAFETY_FACTOR` | 3.0 | Prior boost multiplier for EMERGENCY diseases (Fix F1) |
 | `_RED_FLAG_TOKENS` | `{altered_sensorium, weakness_of_one_body_side}` | Trigger set for deterministic override (Fix F2). Only tokens that exist in the 131-token vocabulary, appear in ≥ 80 % of an EMERGENCY disease's rows and 0 % of all other rows. Both belong to Paralysis (brain hemorrhage). **Heart attack has no red-flag token in this dataset**: its rows contain only `chest_pain`, `breathlessness`, `sweating`, `vomiting`, all shared with Tuberculosis at ≥ 90 %. |
 | Calibration split | Stratified 5-fold over the 304 unique (disease, symptom-set) profiles, seed 42 | Row-level 80/20 split was replaced because 94 % of rows are exact duplicates and leaked across the split (see `_fit_calibration_and_thresholds()` docstring). Isotonic calibration, τ/δ and the CP nonconformity scores are all out-of-fold. |
@@ -331,19 +331,21 @@ flowchart TD
 | Property | Value |
 |---|---|
 | Method | Isotonic regression (Niculescu-Mizil & Caruana, ICML 2005) |
-| Fitted on | 20% holdout from `disease_symptoms.csv` |
-| Purpose | Converts raw NB log-posteriors to calibrated probabilities for CP |
+| Fitted on | Out-of-fold predictions from stratified 5-fold CV over the 304 unique (disease, symptom-set) profiles (NOT a 20% row-split — 94% of rows are exact duplicates, which leak across a row split) |
+| Purpose | Reports a calibrated top-1 confidence (`calibrated_top_confidence`) and the ECE/Brier below. **Stage 3: it no longer feeds the conformal gate** — fitting it on top-1 correctness but applying it per class collapsed calibrated scores to {0, 1} (the q̂ = 1.0 / degenerate-posterior bug). |
+| Quality | ECE ≈ 0.0, Brier ≈ 0.009 on out-of-fold top-1 (reported via `clf.ece_` / `clf.brier_`). Best calibrator here empirically (ECE 0.019 vs raw 0.109 vs Platt 0.463). |
 | Constraint | Monotone non-decreasing — preserves ranking while correcting scale |
 
 ### 8.3 Split Conformal Prediction
 
 | Property | Value |
 |---|---|
-| Method | Split CP (Vovk 2005; Angelopoulos & Bates 2021) |
-| Nonconformity score | `s(d) = 1 − P̂_calibrated(d | symptoms)` |
-| α | 0.05 (5% miscoverage budget) |
-| Coverage guarantee | ≥ 95% (true disease in prediction set) under exchangeability |
-| Calibration set | Same 20% holdout as isotonic calibration |
+| Method | Split CP / LAC (Vovk 2005; Angelopoulos & Bates 2021) |
+| Nonconformity score | `s(d) = 1 − score(d)`, where `score(d)` is the NB softmax renormalized over ≥1% survivors then F1 emergency-boosted — the same quantity at calibration and inference (Stage 3; was `1 − isotonic(d)`, which collapsed). |
+| α | `DEFAULT_CP_ALPHA` = 0.10 → q̂ ≈ 0.022 (non-vacuous) |
+| Coverage guarantee | ≥ 90% nominal (empirical held-out ≈ 99%) under exchangeability |
+| Calibration set | 304 out-of-fold nonconformity scores from the same stratified 5-fold CV |
+| Empty LAC set | Flat posterior (nothing clears the bar) → the whole plausible differential (honest wide ABSTAIN), not a forced-confident top-1 |
 | Routing | set\_size=1 → CONFIDENT; 2–3 → UNCERTAIN; ≥4 → ABSTAIN |
 
 ### 8.4 AHP Emergency Scorer
@@ -545,8 +547,8 @@ When a CHW answers "No" to a follow-up question, that answer is not used to pena
 ### L7 — Duplicate Follow-up Logic
 The Streamlit UI (`_start_adaptive` / `_answer_adaptive`) and the programmatic API (`classify_with_adaptive_followup`) are separate implementations of the adaptive loop. If one is patched, the other does not automatically follow. (Both received the same two fixes in Oct 2026; the duplication itself remains.)
 
-### L8 — Isotonic Calibrator Applied Outside Its Fitted Range
-The isotonic regressor is fitted on (top-1 raw posterior → P(top-1 is correct)). `classify_with_cp()` applies it to every disease's posterior, not only the top one. Monotonicity preserves the ranking, so the prediction set is still well-ordered, but the "calibrated posterior" reported for non-top diseases is not a calibrated probability of that disease.
+### L8 — Isotonic Calibrator Applied Outside Its Fitted Range (RESOLVED, Stage 3)
+Previously the isotonic regressor (fitted on top-1 raw posterior → P(top-1 correct)) was applied to every disease's posterior inside `classify_with_cp()`, which collapsed the calibrated per-class scores to {0, 1} and drove the q̂ = 1.0 / degenerate-posterior bug. Stage 3 removed isotonic from the gate entirely: the conformal set now scores on the NB posterior directly, and isotonic is used only for the reported top-1 confidence + ECE/Brier (a use within its fitted domain).
 
 ### L9 — Pediatric Danger Signs Used as the Adult Override
 `score_emergency()` applies the four WHO IMCI general danger signs (a 2–59 month construct) as the adult hard override. Convulsions and lethargy/unconsciousness are defensible red flags at any age; "vomits everything" and "not able to drink or breastfeed" are pediatric criteria and have not been validated as adult emergency triggers.

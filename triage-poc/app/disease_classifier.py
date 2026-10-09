@@ -78,9 +78,8 @@ _LAPLACE_ALPHA = 1.0
 # profiles) still contributes at least one profile to every fold's
 # TRAINING side (5 profiles / 5 folds = exactly 1 held out per fold, 4
 # retained) -- no fold ever trains on zero rows for any disease. It also
-# keeps each fold's holdout share close to the prior single-split's 20%,
-# the ratio _TARGET_SELECTIVE_ERROR/_MIN_COVERAGE below were already
-# chosen relative to. k=10 was considered and rejected: with a minimum of
+# keeps each fold's holdout share close to the prior single-split's 20%.
+# k=10 was considered and rejected: with a minimum of
 # 5 profiles per disease, most (disease, fold) combinations would hold out
 # zero profiles for that disease, unevenly thinning the aggregated
 # evaluation sample without adding real held-out diversity given how few
@@ -88,12 +87,14 @@ _LAPLACE_ALPHA = 1.0
 _CALIBRATION_N_FOLDS = 5
 _CALIBRATION_SEED = 42
 
-# Risk-coverage operating point: target selective error ≤ 3 % (30 in 1000).
-# The δ chosen is the smallest gap threshold that keeps selective error below
-# this target while maintaining coverage ≥ 60 %.  Both τ and δ are derived
-# from held-out calibration data; they are not hand-picked.
-_TARGET_SELECTIVE_ERROR = 0.03
-_MIN_COVERAGE = 0.60
+# Conformal miscoverage budget α. 0.10 (nominal 90% coverage) was tuned on the
+# out-of-fold calibration data (Stage 3): it gives a non-vacuous q̂, keeps
+# under-triage lowest, and leaves a meaningful UNCERTAIN rate so the
+# abstain-and-ask follow-up loop has a real role. Empirical held-out coverage
+# is ~0.99 (the gate is conservative). (The previous τ/δ reject option — a
+# Youden-J threshold and a risk-coverage gap — was never called by anything and
+# has been removed: Conformal Prediction is the sole uncertainty gate.)
+DEFAULT_CP_ALPHA = 0.10
 
 # Fix 2 — Emergency safety boost.
 # The dataset has only 2 EMERGENCY diseases out of 41, giving them a raw prior
@@ -130,6 +131,44 @@ _RED_FLAG_TOKENS: frozenset[str] = frozenset({
     "altered_sensorium",          # Paralysis: 95 % of rows, 0 % elsewhere
     "weakness_of_one_body_side",  # Paralysis: 90 % of rows, 0 % elsewhere
 })
+
+
+def _clean_candidate_scores(probs: dict[str, float]) -> dict[str, float]:
+    """Renormalize raw NB softmax posteriors over the >=MIN_CANDIDATE_SCORE
+    survivors -- the exact score classify_diseases() exposes as each
+    candidate's `score`. Computing CP nonconformity from this same quantity
+    (out-of-fold at calibration, and on live candidates at inference) keeps the
+    conformal calibration and inference scores exchangeable. Returns {} when no
+    token is recognised / nothing survives the floor."""
+    surviving = {d: p for d, p in probs.items() if p >= MIN_CANDIDATE_SCORE}
+    total = sum(surviving.values())
+    if total <= 0:
+        return {}
+    return {d: round(p / total, 4) for d, p in surviving.items()}
+
+
+def _boost_emergency_scores(
+    scores: dict[str, float], emergency_names: "frozenset[str]"
+) -> dict[str, float]:
+    """Fix F1 -- multiply EMERGENCY-tier diseases' scores by
+    EMERGENCY_SAFETY_FACTOR and renormalize, to compensate for the 2-of-41
+    EMERGENCY class imbalance (over-triaging an emergency beats missing one).
+    No-op when no EMERGENCY disease is present. Applied identically at CP
+    calibration and inference so the conformity score is the same quantity.
+
+    `emergency_names` is passed in (precomputed once from the classifier's own
+    DiseaseKB) rather than looked up via severity_for_disease(): this runs
+    INSIDE DiseaseClassifier.__init__ (CP calibration), and the kb-less
+    severity_for_disease() would call get_default_classifier() and recurse into
+    construction."""
+    if not any(d in emergency_names for d in scores):
+        return dict(scores)
+    boosted = {
+        d: (s * EMERGENCY_SAFETY_FACTOR if d in emergency_names else s)
+        for d, s in scores.items()
+    }
+    total = sum(boosted.values())
+    return {d: s / total for d, s in boosted.items()} if total > 0 else dict(scores)
 
 
 def _fit_naive_bayes(
@@ -239,19 +278,6 @@ def _unique_profiles_by_disease(
 
 
 @dataclass
-class DiagnosisOutput:
-    """Full Stage-1 output from classify_with_abstention()."""
-    candidates: list[DiseaseCandidate]
-    calibrated_confidence: float    # isotonic-calibrated P(top is correct)
-    raw_confidence: float           # raw NB posterior for top disease
-    gap_to_second: float            # top - second calibrated posterior
-    abstain: bool                   # True = engine refuses to answer
-    abstain_reason: Optional[str]   # human-readable reason
-    tau: float                      # Youden-J-derived threshold used
-    delta: float                    # risk-coverage-derived gap used
-
-
-@dataclass
 class ConformalResult:
     """Output of classify_with_cp() — Conformal Prediction prediction set.
 
@@ -298,13 +324,26 @@ class DiseaseClassifier:
         # derived FROM it change, not this estimation itself.
         self._log_prior, self._log_likelihood = _fit_naive_bayes(rows_by_disease, self.vocabulary)
 
-        # Fit isotonic calibration, derive abstention thresholds, and store
-        # Conformal Prediction calibration scores via leak-free k-fold
+        # EMERGENCY-tier disease names, resolved from THIS classifier's own kb
+        # (kb passed explicitly so it never calls get_default_classifier(),
+        # which would recurse while we are still inside __init__). Used by the
+        # F1 emergency boost at both CP calibration (below) and inference.
+        self._emergency_disease_names: frozenset[str] = frozenset(
+            d for d in self.kb.diseases
+            if severity_for_disease(d, self.kb) == ClassificationLabel.EMERGENCY
+        )
+
+        # Fit the isotonic top-1 confidence calibrator (for a reported,
+        # non-degenerate confidence + ECE/Brier) and store the Conformal
+        # Prediction calibration nonconformity scores, via leak-free k-fold
         # cross-validation over unique profiles. Done once at construction.
         # See _fit_calibration_and_thresholds().
-        self._calibrator, self._tau, self._delta, self._cp_cal_nonconformity_scores = (
-            self._fit_calibration_and_thresholds()
-        )
+        (
+            self._calibrator,
+            self._cp_cal_nonconformity_scores,
+            self.ece_,
+            self.brier_,
+        ) = self._fit_calibration_and_thresholds()
 
     # ------------------------------------------------------------------
     # Calibration and threshold derivation
@@ -318,9 +357,26 @@ class DiseaseClassifier:
         return _nb_posteriors(recognized, self.kb.diseases, self._log_prior, self._log_likelihood)
 
     def _fit_calibration_and_thresholds(self):
-        """Fit isotonic calibration and derive τ (Youden's J) and δ
-        (risk-coverage) via leak-free stratified k-fold cross-validation
-        over UNIQUE (disease, symptom-set) profiles.
+        """Fit the isotonic top-1 confidence calibrator, compute the Conformal
+        Prediction calibration nonconformity scores, and report calibration
+        quality (ECE/Brier) -- all via leak-free stratified k-fold
+        cross-validation over UNIQUE (disease, symptom-set) profiles.
+
+        Stage 3 change -- the conformal gate is now a non-vacuous split
+        conformal (LAC) on the NB posterior:
+          - Nonconformity on a class d is s(d) = 1 - p(d), where p(d) is the
+            emergency-boosted, renormalized NB candidate score (exactly what
+            classify_diseases() + the F1 boost expose at inference), computed
+            OUT OF FOLD here so calibration and inference score the same
+            quantity. This replaced the old s(d) = 1 - isotonic(d): the
+            isotonic was fit on TOP-1 correctness (raw_top -> is_correct) but
+            applied PER CLASS, collapsing almost every calibrated posterior to
+            {0, 1}. That made >=5% of calibration nonconformity scores exactly
+            1.0, pinning q̂ to 1.0 at α=0.05 (CP-1: the gate admitted every
+            candidate >=1%, so its coverage claim was trivially true) and the
+            displayed posteriors degenerate at 0.000 (CP-3).
+          - The isotonic calibrator is KEPT, but only to report a calibrated
+            top-1 confidence and the ECE/Brier below -- it no longer gates.
 
         WHY (superseding the prior single 80/20-row-split approach): this
         codebase's disease_symptoms.csv has 4,920 rows but only 304 unique
@@ -349,23 +405,20 @@ class DiseaseClassifier:
              TRAINING profiles -- a genuinely separate model per fold, not
              the full-data model.
           4. Score every held-out profile in that fold with that fold's
-             own model -- one out-of-fold (raw_top, is_correct, gap)
-             triple per unique profile, 304 total across all folds, each
-             scored by a model that never saw that exact profile during
-             its own training.
+             own model -- one out-of-fold (raw_top, is_correct) pair plus
+             one CP nonconformity score (1 − boosted true-class score) per
+             unique profile, 304 total across all folds, each scored by a
+             model that never saw that exact profile during its own training.
           5. Fit IsotonicRegression on the aggregated 304 out-of-fold
-             (raw_posterior, is_correct) pairs.
-          6. Derive τ via Youden's J index (Youden 1950; BMC Med Res Meth
-             2024) over the calibrated scores.
-          7. Derive δ via risk-coverage curve (Chow 1970; Geifman &
-             El-Yaniv 2017) at target selective error _TARGET_SELECTIVE_ERROR,
-             minimum coverage _MIN_COVERAGE.
+             (raw_posterior, is_correct) pairs (for the reported top-1
+             confidence + ECE/Brier only -- it does not gate).
+          6. Store the out-of-fold CP nonconformity scores; classify_with_cp()
+             takes their ⌈(n+1)(1−α)⌉/n-th quantile as q̂ at inference.
 
         The PRODUCTION model (self._log_prior/self._log_likelihood, set in
-        __init__) is untouched by this method -- still fit once on ALL
-        rows. Only the calibration curve and τ/δ derived from it change.
+        __init__) is untouched by this method -- still fit once on ALL rows.
 
-        Returns (calibrator, tau, delta).
+        Returns (calibrator, cp_cal_nonconformity_scores, ece, brier).
         """
         from sklearn.isotonic import IsotonicRegression
 
@@ -386,18 +439,14 @@ class DiseaseClassifier:
 
         raw_tops: list[float] = []
         is_correct: list[int] = []
-        gaps: list[float] = []
-        # Raw posterior of the TRUE disease for each held-out profile, scored
-        # by that fold's own model -- the input to the Conformal Prediction
-        # nonconformity scores (1 - P̂_cal(true_class)). Collected INSIDE the
-        # fold loop so CP calibration is leak-free in exactly the same way
-        # the isotonic/τ/δ calibration above is. (An earlier version scored
-        # these with the full-data model via self._raw_posteriors(), i.e.
-        # on profiles that model had already trained on -- the same leakage
-        # this docstring describes -- and referenced a `held_out_rows` list
-        # that no longer existed after the k-fold rewrite, which made
-        # DiseaseClassifier() raise NameError on construction.)
-        true_class_raw_posteriors: list[float] = []
+        # Conformal Prediction nonconformity score per held-out profile:
+        # s = 1 - p(true_class), where p is the emergency-boosted renormalized
+        # NB candidate score -- EXACTLY what classify_diseases() + the F1 boost
+        # expose at inference, so calibration and inference score the same
+        # quantity (exchangeability). A true class filtered out below
+        # MIN_CANDIDATE_SCORE scores 0.0 -> maximal nonconformity 1.0
+        # (conservative, widens q̂). Collected INSIDE the fold loop (leak-free).
+        cp_cal_nonconformity_scores: list[float] = []
 
         vocab_set = set(self.vocabulary)
         for fold_idx in range(_CALIBRATION_N_FOLDS):
@@ -437,85 +486,65 @@ class DiseaseClassifier:
                     continue
                 sorted_probs = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
                 top_d, top_p = sorted_probs[0]
-                second_p = sorted_probs[1][1] if len(sorted_probs) > 1 else 0.0
                 raw_tops.append(top_p)
                 is_correct.append(1 if top_d == true_disease else 0)
-                gaps.append(top_p - second_p)
-                # Out-of-fold raw posterior of the TRUE class — needed for
-                # Conformal Prediction nonconformity scores (1 - P̂(true_class)).
-                # A disease absent from this fold's training side (should
-                # not happen at k=5, see _CALIBRATION_N_FOLDS) scores 0.0,
-                # i.e. maximal nonconformity -- conservative, widens q̂.
-                true_class_raw_posteriors.append(probs.get(true_disease, 0.0))
+                # Emergency-boosted renormalized score of the TRUE class,
+                # computed exactly as classify_diseases()+F1 do at inference.
+                scored = _boost_emergency_scores(
+                    _clean_candidate_scores(probs), self._emergency_disease_names
+                )
+                cp_cal_nonconformity_scores.append(1.0 - scored.get(true_disease, 0.0))
 
         if not raw_tops:
-            return None, 0.5, 0.1, []
+            return None, [], None, None
 
-        # Fit isotonic calibration on (raw_posterior, is_correct)
+        # Fit isotonic calibration on (raw_top_posterior, is_correct). KEPT only
+        # to report a calibrated top-1 confidence and the ECE/Brier below -- it
+        # no longer feeds the conformal gate (see the Stage 3 note above).
+        # Isotonic is still the best calibrator here empirically (ECE ~0.019 vs
+        # raw ~0.109 vs Platt ~0.463).
         calibrator = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip")
         calibrator.fit(raw_tops, is_correct)
 
-        # Apply calibration to get calibrated scores
-        cal_tops = list(calibrator.transform(raw_tops))
-
-        # Derive τ via Youden's J (maximise Sensitivity + Specificity - 1)
-        unique_thresholds = sorted(set(cal_tops))
-        best_j = -2.0
-        best_tau = 0.5
-        for thresh in unique_thresholds:
-            tp = sum(1 for s, c in zip(cal_tops, is_correct) if s >= thresh and c == 1)
-            fn = sum(1 for s, c in zip(cal_tops, is_correct) if s < thresh  and c == 1)
-            fp = sum(1 for s, c in zip(cal_tops, is_correct) if s >= thresh and c == 0)
-            tn = sum(1 for s, c in zip(cal_tops, is_correct) if s < thresh  and c == 0)
-            sens = tp / (tp + fn) if (tp + fn) > 0 else 0.0
-            spec = tn / (tn + fp) if (tn + fp) > 0 else 0.0
-            j = sens + spec - 1.0
-            if j > best_j:
-                best_j = j
-                best_tau = thresh
-
-        # Derive δ via risk-coverage curve
-        # Sweep gap thresholds; pick smallest δ achieving selective error ≤ target
-        # while coverage ≥ _MIN_COVERAGE.
+        # Calibration quality on the out-of-fold top-1 predictions, reported for
+        # the paper / UI (never used to gate). Brier = mean squared error of the
+        # calibrated confidence vs correctness; ECE = 10-bin expected calibration
+        # error.
+        cal_tops = [float(v) for v in calibrator.transform(raw_tops)]
         n_total = len(is_correct)
-        sorted_gaps = sorted(set(gaps))
-        best_delta = 0.0
-        for gap_thresh in sorted_gaps:
-            answered = [
-                c for raw_t, c, g in zip(raw_tops, is_correct, gaps)
-                if g >= gap_thresh
+        brier = sum((p - c) ** 2 for p, c in zip(cal_tops, is_correct)) / n_total
+        n_bins = 10
+        ece = 0.0
+        for b in range(n_bins):
+            lo, hi = b / n_bins, (b + 1) / n_bins
+            idx = [
+                i for i, p in enumerate(cal_tops)
+                if (p > lo or (b == 0 and p >= lo)) and p <= hi
             ]
-            if not answered:
+            if not idx:
                 continue
-            coverage = len(answered) / n_total
-            if coverage < _MIN_COVERAGE:
-                continue
-            err = sum(1 for c in answered if c == 0) / len(answered)
-            if err <= _TARGET_SELECTIVE_ERROR:
-                best_delta = gap_thresh
-                break   # first (smallest) gap threshold meeting the target
+            conf = sum(cal_tops[i] for i in idx) / len(idx)
+            acc = sum(is_correct[i] for i in idx) / len(idx)
+            ece += (len(idx) / n_total) * abs(acc - conf)
 
-        # Conformal Prediction nonconformity scores: 1 - P̂_calibrated(true_class).
-        # These are stored so classify_with_cp() can compute the quantile threshold
-        # q̂ at inference time for any chosen α without re-fitting anything.
-        cp_nonconformity_scores: list[float] = []
-        for raw_true in true_class_raw_posteriors:
-            cal_true = float(calibrator.transform([raw_true])[0])
-            cp_nonconformity_scores.append(1.0 - cal_true)
+        return calibrator, cp_cal_nonconformity_scores, ece, brier
 
-        return calibrator, best_tau, best_delta, cp_nonconformity_scores
+    def calibrated_top_confidence(self, symptom_tokens: list[str]) -> Optional[float]:
+        """Isotonic-calibrated confidence that the top-1 NB disease is correct.
 
-    def _apply_calibration(self, raw_top_posterior: float) -> float:
-        """Apply isotonic calibration to a raw NB top posterior."""
+        This is the one place the isotonic calibrator is used at inference --
+        for a reported, non-degenerate top-1 confidence (and it backs the
+        ECE/Brier in `ece_`/`brier_`). It does NOT gate: the conformal gate
+        (classify_with_cp) scores on the NB posterior directly. Returns None
+        when no token is recognised or no calibrator was fit.
+        """
         if self._calibrator is None:
-            return raw_top_posterior
-        return float(self._calibrator.transform([raw_top_posterior])[0])
-
-    def _calibrate(self, raw_posterior: float) -> float:
-        """Apply isotonic calibration to any raw NB posterior (not just the top)."""
-        if self._calibrator is None:
-            return raw_posterior
-        return float(self._calibrator.transform([raw_posterior])[0])
+            return None
+        probs = self._raw_posteriors(symptom_tokens)
+        if not probs:
+            return None
+        raw_top = max(probs.values())
+        return float(self._calibrator.transform([raw_top])[0])
 
     def classify_diseases(
         self, symptom_tokens: list[str], top_n: Optional[int] = None
@@ -581,132 +610,38 @@ class DiseaseClassifier:
             candidates = candidates[:top_n]
         return candidates
 
-    def classify_with_abstention(
-        self, symptom_tokens: list[str]
-    ) -> DiagnosisOutput:
-        """Stage-1 entry point with calibration and reject-option abstention.
-
-        Steps:
-          1. Compute raw NB posteriors.
-          2. Apply isotonic calibration to the top posterior.
-          3. Check abstention conditions (Chow 1970 / Geifman & El-Yaniv 2017):
-               top_calibrated_posterior >= τ  (Youden's J threshold)
-               gap(top − second) >= δ         (risk-coverage threshold)
-          4. If both pass → answer.  If either fails → abstain.
-
-        Returns a DiagnosisOutput with full audit trail.
-        No LLM call anywhere in this path.
-        """
-        candidates = self.classify_diseases(symptom_tokens)
-
-        if not candidates:
-            return DiagnosisOutput(
-                candidates=[],
-                calibrated_confidence=0.0,
-                raw_confidence=0.0,
-                gap_to_second=0.0,
-                abstain=True,
-                abstain_reason="no recognized symptom tokens — cannot rank diseases",
-                tau=self._tau,
-                delta=self._delta,
-            )
-
-        raw_top = candidates[0].score
-        cal_top = self._apply_calibration(raw_top)
-        raw_second = candidates[1].score if len(candidates) > 1 else 0.0
-        gap = raw_top - raw_second
-
-        if cal_top < self._tau:
-            return DiagnosisOutput(
-                candidates=candidates,
-                calibrated_confidence=cal_top,
-                raw_confidence=raw_top,
-                gap_to_second=gap,
-                abstain=True,
-                abstain_reason=(
-                    f"calibrated confidence {cal_top:.3f} < τ={self._tau:.3f} "
-                    f"(Youden's J threshold) — insufficient certainty"
-                ),
-                tau=self._tau,
-                delta=self._delta,
-            )
-
-        if gap < self._delta:
-            top_name = candidates[0].name
-            second_name = candidates[1].name if len(candidates) > 1 else "?"
-            return DiagnosisOutput(
-                candidates=candidates,
-                calibrated_confidence=cal_top,
-                raw_confidence=raw_top,
-                gap_to_second=gap,
-                abstain=True,
-                abstain_reason=(
-                    f"gap {gap:.3f} < δ={self._delta:.3f} (risk-coverage threshold) — "
-                    f"'{top_name}' and '{second_name}' are too close to distinguish safely"
-                ),
-                tau=self._tau,
-                delta=self._delta,
-            )
-
-        return DiagnosisOutput(
-            candidates=candidates,
-            calibrated_confidence=cal_top,
-            raw_confidence=raw_top,
-            gap_to_second=gap,
-            abstain=False,
-            abstain_reason=None,
-            tau=self._tau,
-            delta=self._delta,
-        )
-
     def classify_with_cp(
-        self, symptom_tokens: list[str], alpha: float = 0.05
+        self, symptom_tokens: list[str], alpha: float = DEFAULT_CP_ALPHA
     ) -> ConformalResult:
-        """Conformal Prediction gate — replaces the heuristic Youden's J
-        abstention with a formally guaranteed prediction set.
+        """Conformal Prediction gate (split conformal / LAC).
 
-        Coverage guarantee: P(true disease ∈ prediction_set) ≥ 1 − α,
-        under exchangeability of calibration and test samples (Vovk 2005;
+        Coverage guarantee: P(true disease ∈ prediction_set) ≥ 1 − α under
+        exchangeability of calibration and test samples (Vovk 2005;
         Angelopoulos & Bates 2021).
 
-        Algorithm:
-          1. Compute raw NB posteriors for all 41 diseases.
-          2. Apply isotonic calibration to each disease's posterior.
-          3. Compute nonconformity score for each disease:
-               s(d) = 1 − calibrated_P(d | symptoms)
-          4. Compute q̂ = ⌈(n+1)(1−α)⌉/n -th quantile of the stored
-             calibration nonconformity scores (n = |calibration set|).
-          5. Include disease d in prediction set iff s(d) ≤ q̂.
-          6. Map set_size to a routing decision:
-               1   → CONFIDENT (skip follow-up, go to AHP Stage 2)
-               2-3 → UNCERTAIN (trigger adaptive follow-up loop)
-               ≥4  → ABSTAIN   (refer to higher facility)
+        Algorithm (Stage 3 — non-vacuous):
+          1. candidates = classify_diseases() — NB softmax renormalized over
+             the >=MIN_CANDIDATE_SCORE survivors.
+          2. F1 emergency boost: EMERGENCY diseases ×EMERGENCY_SAFETY_FACTOR,
+             renormalized. The result `score` is the conformity probability.
+          3. Nonconformity s(d) = 1 − score(d).
+          4. q̂ = the ⌈(n+1)(1−α)⌉/n-th smallest of the stored OUT-OF-FOLD
+             calibration nonconformity scores (same boosted-score quantity).
+          5. prediction_set = {d : s(d) ≤ q̂}. If that is empty, the posterior
+             is flat/uncertain, so the set becomes the whole plausible
+             differential (all candidates ≥ MIN_CANDIDATE_SCORE) — an honest
+             wide ABSTAIN rather than a forced-confident top-1.
+          6. set_size → decision: 1 CONFIDENT, 2-3 UNCERTAIN, ≥4 ABSTAIN.
+          7. F2 red-flag override can still collapse to a single EMERGENCY.
+
+        Unlike the pre-Stage-3 gate, q̂ is no longer pinned to 1.0 (the old
+        isotonic-collapse bug): the set now genuinely shrinks as the posterior
+        concentrates with discriminating tokens, and `posteriors` carries the
+        real (boosted) NB probabilities, not degenerate 0.000 values.
 
         No LLM call.  Returns ConformalResult with full audit trail.
         """
         candidates = self.classify_diseases(symptom_tokens)
-
-        # Fix 2 — Emergency safety boost (applied before calibration).
-        # Re-weight EMERGENCY disease scores upward to compensate for the
-        # dataset's class imbalance (only 2 of 41 diseases are EMERGENCY).
-        # Re-normalise so scores still sum to 1 across all surviving candidates.
-        has_emergency = any(
-            severity_for_disease(c.name) == ClassificationLabel.EMERGENCY
-            for c in candidates
-        )
-        if has_emergency:
-            boosted = [
-                c.model_copy(update={"score": c.score * EMERGENCY_SAFETY_FACTOR})
-                if severity_for_disease(c.name) == ClassificationLabel.EMERGENCY
-                else c
-                for c in candidates
-            ]
-            total = sum(c.score for c in boosted)
-            candidates = sorted(
-                [c.model_copy(update={"score": c.score / total}) for c in boosted],
-                key=lambda c: c.score,
-                reverse=True,
-            )
 
         if not candidates:
             return ConformalResult(
@@ -719,11 +654,23 @@ class DiseaseClassifier:
                 posteriors={},
             )
 
-        # Compute q̂ from stored calibration nonconformity scores
+        # Fix F1 — emergency safety boost. Applied via the same helper the CP
+        # calibration uses, so the conformity score is the same quantity in
+        # both places (exchangeability).
+        boosted_map = _boost_emergency_scores(
+            {c.name: c.score for c in candidates}, self._emergency_disease_names
+        )
+        candidates = sorted(
+            [c.model_copy(update={"score": round(boosted_map[c.name], 4)}) for c in candidates],
+            key=lambda c: c.score,
+            reverse=True,
+        )
+
+        # q̂ from stored out-of-fold calibration nonconformity scores.
         cal_scores = self._cp_cal_nonconformity_scores
         n = len(cal_scores)
         if n == 0:
-            # Degenerate: no calibration data — fall back to top-1
+            # Degenerate: no calibration data — fall back to top-1.
             top = candidates[0]
             return ConformalResult(
                 prediction_set=[top.name],
@@ -732,26 +679,21 @@ class DiseaseClassifier:
                 alpha=alpha,
                 q_hat=1.0,
                 candidates=candidates,
-                posteriors={top.name: self._calibrate(top.score)},
+                posteriors={top.name: top.score},
             )
         q_idx = min(int(math.ceil((n + 1) * (1.0 - alpha))), n) - 1
         q_hat = sorted(cal_scores)[q_idx]
 
-        # Build prediction set: include d if nonconformity(d) ≤ q̂
-        prediction_set: list[str] = []
-        posteriors: dict[str, float] = {}
-        for c in candidates:
-            cal_p = self._calibrate(c.score)
-            nonconf = 1.0 - cal_p
-            if nonconf <= q_hat:
-                prediction_set.append(c.name)
-                posteriors[c.name] = cal_p
-
-        if not prediction_set:
-            # q̂ is so low that nothing passes — fall back to top candidate
-            top = candidates[0]
-            prediction_set = [top.name]
-            posteriors = {top.name: self._calibrate(top.score)}
+        # LAC prediction set: include d iff nonconformity(d) = 1 − score(d) ≤ q̂.
+        in_set = [c for c in candidates if (1.0 - c.score) <= q_hat]
+        if not in_set:
+            # Flat posterior, nothing clears the bar: the honest answer is the
+            # whole plausible differential (wide/uncertain), NOT a confident
+            # top-1. rules_engine's Stage-2 safety then escalates if the wide
+            # set contains an EMERGENCY/SEVERE disease.
+            in_set = list(candidates)
+        prediction_set = [c.name for c in in_set]
+        posteriors = {c.name: c.score for c in in_set}
 
         set_size = len(prediction_set)
         if set_size == 1:
@@ -771,8 +713,7 @@ class DiseaseClassifier:
         token_set = set(symptom_tokens)
         if decision != "CONFIDENT" and token_set & _RED_FLAG_TOKENS:
             emergency_in_set = [
-                d for d in prediction_set
-                if severity_for_disease(d) == ClassificationLabel.EMERGENCY
+                d for d in prediction_set if d in self._emergency_disease_names
             ]
             if emergency_in_set:
                 top_em = max(emergency_in_set, key=lambda d: posteriors.get(d, 0.0))

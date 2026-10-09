@@ -15,11 +15,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -27,11 +26,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -161,11 +159,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -184,11 +181,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -240,12 +236,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 3,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Pneumonia",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -253,11 +247,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -276,11 +269,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -299,11 +291,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -345,11 +336,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -445,11 +435,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -493,11 +482,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -571,11 +559,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -638,11 +625,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -694,11 +680,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -827,11 +812,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -993,11 +977,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -1005,11 +988,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -1017,11 +999,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
@@ -1051,11 +1032,10 @@
     "true_band": "EMERGENCY",
     "pred_disease": "Heart attack",
     "pred_band": "EMERGENCY",
-    "decision": "UNCERTAIN",
-    "set_size": 2,
+    "decision": "CONFIDENT",
+    "set_size": 1,
     "prediction_set": [
-      "Heart attack",
-      "Tuberculosis"
+      "Heart attack"
     ]
   },
   {
