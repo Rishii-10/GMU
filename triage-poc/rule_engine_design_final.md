@@ -132,7 +132,7 @@ flowchart TD
 
 ### 4.1 Why Conformal Prediction
 
-The Naive Bayes posterior is a ranking, not a calibrated probability. Standard reject-option methods (Youden's J threshold, gap-to-second heuristics) are ad-hoc and provide no formal guarantee. **Split Conformal Prediction** (Vovk 2005; Angelopoulos & Bates 2021) gives a formal ≥ 95 % coverage guarantee:
+The Naive Bayes posterior is a ranking, not a calibrated probability. Standard reject-option methods (Youden's J threshold, gap-to-second heuristics) are ad-hoc and provide no formal guarantee — and were removed from this engine (the τ/δ path was dead code). **Split Conformal Prediction** (Vovk 2005; Angelopoulos & Bates 2021) gives a distribution-free ≥ 1 − α coverage guarantee (α = 0.10 here → ≥ 90 % nominal; empirical held-out ≈ 99 %):
 
 > *With probability ≥ 1 − α, the true disease is contained in the CP prediction set.*
 
@@ -164,7 +164,7 @@ flowchart LR
 | α (alpha) | `DEFAULT_CP_ALPHA` = 0.10 | Miscoverage budget → ≥ 90% nominal coverage (empirical held-out ≈ 99%). Tuned on out-of-fold data in Stage 3: it keeps q̂ non-vacuous (≈ 0.022, vs the old degenerate q̂ = 1.0 at α = 0.05), minimises under-triage, and leaves a meaningful UNCERTAIN rate so the follow-up loop has a role. |
 | `EMERGENCY_SAFETY_FACTOR` | 3.0 | Prior boost multiplier for EMERGENCY diseases (Fix F1) |
 | `_RED_FLAG_TOKENS` | `{altered_sensorium, weakness_of_one_body_side}` | Trigger set for deterministic override (Fix F2). Only tokens that exist in the 131-token vocabulary, appear in ≥ 80 % of an EMERGENCY disease's rows and 0 % of all other rows. Both belong to Paralysis (brain hemorrhage). **Heart attack has no red-flag token in this dataset**: its rows contain only `chest_pain`, `breathlessness`, `sweating`, `vomiting`, all shared with Tuberculosis at ≥ 90 %. |
-| Calibration split | Stratified 5-fold over the 304 unique (disease, symptom-set) profiles, seed 42 | Row-level 80/20 split was replaced because 94 % of rows are exact duplicates and leaked across the split (see `_fit_calibration_and_thresholds()` docstring). Isotonic calibration, τ/δ and the CP nonconformity scores are all out-of-fold. |
+| Calibration split | Stratified 5-fold over the 304 unique (disease, symptom-set) profiles, seed 42 | Row-level 80/20 split was replaced because 94 % of rows are exact duplicates and leaked across the split (see `_fit_calibration_and_thresholds()` docstring). The isotonic fit and the CP nonconformity scores are both out-of-fold. (There is no τ/δ — that reject option was removed in Stage 3.) |
 
 ### 4.4 Routing by Decision
 
@@ -435,7 +435,7 @@ The 19 baseline false negatives were all Heart attack cases misclassified as Tub
 
 ### 9.3 CP Formal Coverage (Exchangeability Check)
 
-In both the 100-case and 1000-case runs, the true disease appeared in the CP prediction set for **100% of cases** (exceeds the 95% formal guarantee under in-distribution conditions).
+In the in-sample runs the true disease appeared in the CP prediction set for **100% of cases**, and in the OUT-OF-SAMPLE short-message harness (`tests/evaluate_oos.py`) for 100% as well — both exceed the ≥ 90 % (α = 0.10) nominal guarantee under in-distribution conditions. (In-sample coverage is a wiring check; the OOS figure is the one to cite.)
 
 ---
 
@@ -541,7 +541,7 @@ For the 1,000-case run, the 334 EMERGENCY test cases were sampled with replaceme
 All evaluations bypass Agent 1 by feeding clean CSV tokens directly to the classifier. In production, NLP extraction errors (dropped tokens, mistranslation, hallucinated signs) compound directly into CP accuracy. No end-to-end NLP error rate has been measured.
 
 ### L5 — CP Exchangeability Assumption
-The ≥ 95% coverage guarantee holds only if the deployment symptom distribution is exchangeable with the calibration distribution (both from the same CSV). This assumption breaks under real-world distribution shift.
+The ≥ 1 − α (90% at α = 0.10) coverage guarantee holds only if the deployment symptom distribution is exchangeable with the calibration distribution (both from the same CSV). This assumption breaks under real-world distribution shift.
 
 ### L6 — Positive-Evidence-Only Follow-up
 When a CHW answers "No" to a follow-up question, that answer is not used to penalise the corresponding disease. The classifier only sees positive symptom tokens. This makes the follow-up loop less efficient — it may need more turns than theoretically necessary.
