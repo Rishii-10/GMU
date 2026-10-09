@@ -1,0 +1,25 @@
+{
+  "n": 304,
+  "regime": "out-of-sample (leave-profiles-out 5-fold) + short message (2-4 tokens)",
+  "under_triage_rate_emergency_severe": 0.0,
+  "under_triage_count": 0,
+  "emergency_severe_n": 142,
+  "over_triage_rate_mild_moderate": 0.216,
+  "cp_coverage_true_in_set": 1.0,
+  "decision_counts": {
+    "CONFIDENT": 201,
+    "UNCERTAIN": 55,
+    "ABSTAIN": 48
+  },
+  "coverage_confident_fraction": 0.6612,
+  "selective_risk_on_confident": 0.0,
+  "silent_error_rate": 0.0,
+  "abstain_or_ask_rate": 0.3388,
+  "consistency_label_agreement": 1.0,
+  "baseline_flat_threshold": {
+    "under_triage_rate_emergency_severe": 0.0634
+  },
+  "ablation_no_worstcase_surface_top": {
+    "under_triage_rate_emergency_severe": 0.0634
+  }
+}
