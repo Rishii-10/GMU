@@ -205,11 +205,12 @@ def test_pipeline_dataset_tokens_feed_disease_classifier_end_to_end(faiss_disamb
     # the dataset classifier and uses symptom_tokens as its evidence.
     #
     # A single lay token like "chest pain" is deliberately ambiguous: the
-    # dataset classifier is reached and produces candidates, but the
-    # conformal set is too wide to commit (>=4 diseases), so the engine
-    # abstains rather than guessing a single probable_disease. This asserts
-    # the dataset path was exercised AND that it abstains honestly on one
-    # ambiguous token.
+    # dataset classifier is reached and produces a conformal set too wide to
+    # commit (>=4 diseases) -- but that set contains Heart attack (EMERGENCY).
+    # Stage 2 safety: a wide set that still contains an EMERGENCY/SEVERE disease
+    # must NOT be a silent INCOMPLETE. The engine surfaces the worst-case label
+    # (EMERGENCY) while STILL abstaining on the exact disease (probable_disease
+    # None, abstention_triggered True) so the adaptive follow-up keeps narrowing.
     from app.rules_engine import classify as rules_classify
     from app.schemas import ClassificationLabel
 
@@ -218,11 +219,13 @@ def test_pipeline_dataset_tokens_feed_disease_classifier_end_to_end(faiss_disamb
     assert case.symptom_tokens == ["chest_pain"]
 
     result = rules_classify(case)
-    # The dataset classifier was exercised: it returned candidates and a
-    # conformal prediction set wide enough to include the emergency option.
+    # The dataset classifier was exercised: candidates + a wide CP set incl. the
+    # emergency option.
     assert result.candidates
     assert "Heart attack" in result.prediction_set
-    # It correctly abstains on a single ambiguous token.
-    assert result.label == ClassificationLabel.INCOMPLETE_ASSESSMENT
+    # Stage 2: escalated to the emergency worst-case, NOT a silent INCOMPLETE,
+    # yet still abstaining on which single disease it is.
+    assert result.label == ClassificationLabel.EMERGENCY
+    assert result.condition == "EMERGENCY_IN_WIDE_DIFFERENTIAL"
     assert result.abstention_triggered is True
     assert result.probable_disease is None

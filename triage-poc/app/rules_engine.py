@@ -272,6 +272,47 @@ def _attach_dataset_context(result: ClassificationResult, case: ExtractedCase) -
     )
 
 
+def _apply_danger_sign_override(
+    result: ClassificationResult, case: ExtractedCase
+) -> ClassificationResult:
+    """One coherent danger-sign safety layer for the adult/dataset path.
+
+    A confirmed WHO IMCI general danger sign (any of the four set True) is a
+    hard EMERGENCY and must not be gated behind CP uncertainty or a specific
+    disease. The CONFIDENT path already applies this via the AHP override
+    inside classify_via_dataset(); this helper applies the SAME rule to the
+    UNCERTAIN and ABSTAIN adult outcomes, so a confirmed danger sign can never
+    be left as a sub-EMERGENCY label or a silent INCOMPLETE just because CP
+    could not name one disease. Together these form one override layer across
+    all adult CP decisions.
+
+    (Pediatric 2-59mo does the equivalent via classify_danger_signs(); young
+    infants <2mo are the documented refusal in classify(), reached before the
+    dataset path -- a deliberate scope choice, not covered by this helper.)
+
+    No-op when no danger sign is confirmed True, or when the label is already
+    EMERGENCY. None (not assessed) never fires it.
+    """
+    if not case.danger_signs.any_true() or result.label == ClassificationLabel.EMERGENCY:
+        return result
+    emergency = score_emergency(case, result.probable_disease or "unknown", ClassificationLabel.EMERGENCY)
+    reasoning = list(result.reasoning) + [
+        "Danger-sign hard override (Stage 2): a confirmed WHO general danger sign "
+        f"escalates the label {result.label.value} → EMERGENCY, regardless of the CP "
+        "decision — a true danger sign is a hard emergency even when the differential "
+        "is still open.",
+        f"Stage 2 — AHP emergency score: {emergency.score}/10  band: {emergency.band.value}  "
+        f"ESI: {emergency.esi_level}  override: {emergency.override_triggered}.",
+    ]
+    return result.model_copy(
+        update={
+            "label": ClassificationLabel.EMERGENCY,
+            "emergency_result": emergency,
+            "reasoning": reasoning,
+        }
+    )
+
+
 def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
     """Primary classification path for adult/elderly/out-of-band-age cases.
 
@@ -302,14 +343,59 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
 
     # --- Stage 1: full abstention — prediction set ≥ 4, CHW cannot resolve ---
     if cp.decision == "ABSTAIN":
-        # Two distinct failure modes: no recognised symptom tokens is a
-        # missing-input problem (INSUFFICIENT_SYMPTOM_DATA); a too-wide
-        # prediction set despite real symptom evidence is a genuine
-        # diagnostic-uncertainty problem (UNCERTAIN_DIAGNOSIS).
+        # SAFETY (Stage 2): a wide prediction set is NOT a licence to
+        # under-triage. If the set still contains an EMERGENCY- or SEVERE-tier
+        # disease, we must surface the worst-case severity and keep asking,
+        # rather than returning a silent INCOMPLETE that hides the emergency
+        # (the signature heart-attack failure: chest_pain alone gives a 6-way
+        # set including Heart attack -> previously INCOMPLETE "need more info").
+        # Worst-case severity is only extended to ABSTAIN when an EMERGENCY/
+        # SEVERE disease is actually present; a wide set of only MILD/MODERATE
+        # diseases still returns INCOMPLETE (ask for more info is safe there).
+        set_severity = {d: severity_for_disease(d) for d in cp.prediction_set}
+        emergency_or_severe = [
+            d for d, s in set_severity.items()
+            if SEVERITY_RANK[s] <= SEVERITY_RANK[ClassificationLabel.SEVERE]
+        ]
+        if emergency_or_severe:
+            worst_label = min(set_severity.values(), key=lambda s: SEVERITY_RANK[s])
+            worst_disease = next(d for d, s in set_severity.items() if s == worst_label)
+            severity_range = sorted(
+                {s.value for s in set_severity.values()},
+                key=lambda v: SEVERITY_RANK[ClassificationLabel(v)],
+            )
+            result = ClassificationResult(
+                label=worst_label,
+                condition="EMERGENCY_IN_WIDE_DIFFERENTIAL",
+                reasoning=[
+                    "Stage 1 CP gate abstained — prediction set size "
+                    f"{cp.set_size} ≥ 4 (too wide to name one disease).",
+                    f"CP q̂ = {cp.q_hat:.4f}  α = {cp.alpha}.",
+                    f"Severity range across prediction set: {severity_range}.",
+                    "SAFETY (Stage 2): the wide differential still contains "
+                    f"EMERGENCY/SEVERE-tier disease(s) {emergency_or_severe}; surfacing "
+                    f"worst-case label {worst_label.value!r} (from {worst_disease!r}) "
+                    "instead of a silent INCOMPLETE. A wide set that contains an "
+                    "emergency must not under-triage.",
+                    "Adaptive follow-up will keep narrowing; route/refer meanwhile.",
+                ],
+                abstention_triggered=True,  # still uncertain on the exact disease
+                candidates=cp.candidates[:5],
+                prediction_set=cp.prediction_set,  # lets the follow-up loop keep narrowing
+                probable_disease=None,              # not committed to one disease
+                case_id=case.case_id,
+            )
+            return _apply_danger_sign_override(result, case)
+
+        # No emergency/severe in the (wide) set: the original INCOMPLETE
+        # behavior is safe. Two distinct failure modes: no recognised symptom
+        # tokens is a missing-input problem (INSUFFICIENT_SYMPTOM_DATA); a
+        # too-wide set despite real evidence is diagnostic uncertainty
+        # (UNCERTAIN_DIAGNOSIS).
         no_symptom_evidence = not cp.candidates
         missing = ["symptom_tokens"] if no_symptom_evidence else []
         condition = "INSUFFICIENT_SYMPTOM_DATA" if no_symptom_evidence else "UNCERTAIN_DIAGNOSIS"
-        return ClassificationResult(
+        result = ClassificationResult(
             label=ClassificationLabel.INCOMPLETE_ASSESSMENT,
             condition=condition,
             reasoning=[
@@ -325,6 +411,8 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
             prediction_set=cp.prediction_set,  # lets the follow-up loop keep narrowing
             case_id=case.case_id,
         )
+        # A confirmed danger sign is still a hard EMERGENCY even here.
+        return _apply_danger_sign_override(result, case)
 
     # --- Stage 1: uncertain — prediction set 2-3, trigger adaptive follow-up ---
     if cp.decision == "UNCERTAIN":
@@ -360,7 +448,7 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
             f"Top probabilistic candidate: {top.name!r} "
             f"(calibrated posterior = {cp.posteriors.get(top.name, 0.0):.3f}).",
         ]
-        return ClassificationResult(
+        result = ClassificationResult(
             label=worst_label,
             condition=top.name,
             reasoning=reasoning,
@@ -370,6 +458,9 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
             prediction_set=cp.prediction_set,
             case_id=case.case_id,
         )
+        # A confirmed danger sign is a hard EMERGENCY regardless of the
+        # worst-case disease label (Stage 2 — one coherent override layer).
+        return _apply_danger_sign_override(result, case)
 
     # --- Stage 1: confident — prediction set size 1 ---
     # Use the disease CP actually chose: after the red-flag override it can
