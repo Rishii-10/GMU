@@ -325,6 +325,51 @@ with st.sidebar.expander("Demo facility network"):
             caps.append("blood bank")
         st.markdown(f"**{f.name}** ({f.facility_type.value}) — {', '.join(caps) or 'basic'}")
 
+with st.sidebar.expander("📊 Model evaluation (held-out)"):
+    import json as _json
+    from pathlib import Path as _Path
+
+    _eval_path = _Path(__file__).resolve().parent / "tests" / "eval_oos_results.json"
+    try:
+        _ev = _json.loads(_eval_path.read_text())
+    except (OSError, ValueError):
+        _ev = None
+    if _ev is None:
+        st.caption(
+            "No evaluation results found. Run "
+            "`PYTHONPATH=. python tests/evaluate_oos.py --write` to generate them."
+        )
+    else:
+        st.caption(
+            "Out-of-sample (leave-profiles-out) + short-message (2–4 tokens) — the "
+            "regime a real caller is in. For triage, selective risk and under-triage "
+            "are the headline, not accuracy. (The in-sample F1 = 1.00 is only a "
+            "pipeline-wiring check.)"
+        )
+        c1, c2 = st.columns(2)
+        with c1:
+            st.metric(
+                "Under-triage (EMG/SEV)",
+                f"{_ev['under_triage_rate_emergency_severe']:.1%}",
+                help=f"{_ev['under_triage_count']}/{_ev['emergency_severe_n']} held-out "
+                     "emergency/severe short messages surfaced below their true tier.",
+            )
+            st.metric("Selective risk (CONFIDENT)", f"{_ev['selective_risk_on_confident']:.1%}")
+            st.metric("Consistency (token order)", f"{_ev['consistency_label_agreement']:.1%}")
+        with c2:
+            st.metric("Over-triage (MILD/MOD)", f"{_ev['over_triage_rate_mild_moderate']:.1%}",
+                      help="The bounded cost of zero under-triage.")
+            st.metric("Ask-or-abstain rate", f"{_ev['abstain_or_ask_rate']:.1%}")
+            st.metric("CP coverage", f"{_ev['cp_coverage_true_in_set']:.1%}")
+        _base = _ev.get("baseline_flat_threshold", {}).get("under_triage_rate_emergency_severe")
+        if _base is not None:
+            st.caption(
+                f"Flat-threshold baseline under-triage: **{_base:.1%}** vs framework "
+                f"**{_ev['under_triage_rate_emergency_severe']:.1%}** — the framework "
+                "dominates on the number that matters. "
+                f"Decisions: {_ev.get('decision_counts', {})}."
+            )
+
 if "history" not in st.session_state:
     st.session_state.history = []
 if "current" not in st.session_state:
@@ -747,34 +792,54 @@ def render_rule_engine_view(cur: dict) -> None:
     # --- Stage 1 ---
     st.markdown("### Stage 1 — Probabilistic Diagnosis")
 
+    st.caption(
+        "Uncertainty gate: split conformal prediction (LAC) at α = 0.10 on the "
+        "emergency-boosted Naive-Bayes posterior. A disease is in the prediction "
+        "set when its nonconformity 1 − posterior ≤ q̂ (the out-of-fold "
+        "calibration quantile). Set size 1 → CONFIDENT, 2–3 → UNCERTAIN (ask a "
+        "follow-up), ≥4 → ABSTAIN. There is no τ/δ reject option — conformal is "
+        "the sole gate."
+    )
+
     if result.calibrated_confidence is None:
-        st.info(
-            "Stage 1 NB classifier ran as **supplementary context** on this case "
-            "(pediatric IMCI path). The calibrated abstention layer applies only "
-            "on the adult/out-of-band route."
-        )
+        if result.prediction_set:
+            st.info(
+                f"Stage 1 did not reach a single confident disease: conformal "
+                f"prediction set of {len(result.prediction_set)} "
+                f"({'ABSTAIN' if result.abstention_triggered else 'UNCERTAIN'}). "
+                "The triage label shown is the worst-case severity across the set "
+                "(never under-triage while the diagnosis is open); the follow-up "
+                "loop narrows it."
+            )
+        else:
+            st.info(
+                "Stage 1 NB classifier ran as **supplementary context** on this case "
+                "(pediatric IMNCI path). The conformal gate applies on the "
+                "adult/out-of-band route."
+            )
     else:
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Calibrated confidence", f"{result.calibrated_confidence:.1%}")
-            st.caption(f"τ threshold (Youden's J): {result.calibrated_confidence:.3f} threshold shown above")
+            st.metric("Top-1 posterior", f"{result.calibrated_confidence:.1%}")
+            st.caption("Emergency-boosted NB posterior of the selected disease (CONFIDENT, set size 1).")
         with col2:
-            st.metric("Raw NB posterior", f"{result.raw_confidence:.1%}" if result.raw_confidence is not None else "—")
+            st.metric("CP decision", "CONFIDENT")
         with col3:
-            st.metric("Gap to 2nd candidate", f"{result.gap_to_second:.3f}" if result.gap_to_second is not None else "—")
+            st.metric("Prediction-set size", "1")
 
-        if result.abstention_triggered:
-            st.error(
-                "**Abstention triggered** — engine refused to answer. "
-                "Coordination layer will route to follow-up. "
-                "This is the safety mechanism preventing a confident-but-wrong diagnosis."
-            )
-        else:
-            st.success("**Abstention check passed** — both τ (confidence) and δ (gap) conditions met.")
+        st.success(
+            "**Conformal gate: CONFIDENT** — the prediction set collapsed to a "
+            "single disease at α = 0.10."
+        )
 
     if result.candidates:
         st.markdown("#### Ranked disease candidates")
-        st.caption("Scores are calibrated isotonic posteriors; the top candidate cleared both the τ and δ thresholds.")
+        st.caption(
+            "Scores are the emergency-boosted Naive-Bayes posteriors used as the "
+            "conformal conformity score (not isotonic — isotonic backs only the "
+            "reported top-1 confidence / ECE). The prediction set is "
+            "{disease : 1 − score ≤ q̂}."
+        )
         for i, c in enumerate(result.candidates[:5]):
             bar_pct = int(c.score * 100)
             badge = "**→ SELECTED**" if i == 0 and not result.abstention_triggered else ""
@@ -794,8 +859,11 @@ def render_rule_engine_view(cur: dict) -> None:
     er = result.emergency_result
     if er is None:
         st.info(
-            "Stage 2 emergency scoring did not run — "
-            "either the case is on the pediatric IMCI path or Stage 1 abstained."
+            "Stage 2 emergency scoring did not run — the case is on the pediatric "
+            "IMNCI path, or Stage 1 did not reach a single confident disease "
+            "(UNCERTAIN / ABSTAIN). AHP is a within-tier prioritizer that runs "
+            "once the adult route is CONFIDENT (or on a danger-sign override); it "
+            "does not set the triage label."
         )
     else:
         fg, bg, label_text = _BAND_STYLE.get(er.band.value, (*C_NEUTRAL, er.band.value))
@@ -829,8 +897,9 @@ def render_rule_engine_view(cur: dict) -> None:
         # Per-attribute breakdown table
         st.markdown("#### Per-attribute breakdown")
         st.caption(
-            "AHP weights derived from pairwise comparison matrix (Saaty 1980). "
-            "Consistency Ratio CR = 0.0205 < 0.10 ✓"
+            "AHP weights derived from the pairwise comparison matrix (Saaty 1980); "
+            "principal-eigenvector CR ≈ 0.020 < 0.10 ✓. The score + ESI prioritize "
+            "within the triage tier; they do not set the label."
         )
 
         attr_display = {
