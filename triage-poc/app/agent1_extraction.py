@@ -82,12 +82,28 @@ strict JSON only, matching exactly this shape:
 SYMPTOMS -- "symptoms" is a JSON array. List EVERY distinct symptom the message mentions as its own \
 separate string item, in the caller's own words (lightly normalized to a short phrase). Do NOT merge \
 several symptoms into one item, and do NOT drop any symptom. Keep each item to a single symptom. \
-Preserve the caller's language/script (do not translate). If the message states no symptom, return []. \
+Preserve the caller's language/script (do not translate).
+
+KEEP INTENSITY WORDS INSIDE THE SYMPTOM. If the caller qualifies a symptom ("mild fever", "high \
+fever", "severe chest pain"), that qualifier is PART OF the symptom item -- keep it there. The \
+separate "severity" field describes the overall case and must NEVER be used to strip a word out of \
+the symptom: "mild fever" is ["mild fever"], never ["fever"].
+
+A MESSAGE CAN BE ONE WORD. If the whole message is just a symptom name, that is still a symptom -- \
+copy it through. But return [] whenever the message names no symptom, however short it is. Report \
+ONLY symptoms that are actually written in THIS message: never copy a symptom from the examples \
+below, and never guess one because the message is unclear. Greetings, thanks, questions and \
+personal details contain no symptoms.
 Examples:
   - "I am 45, chest pain, sweating, breathless and vomiting" -> "symptoms": ["chest pain", "sweating", "breathlessness", "vomiting"]
   - "pet dard aur ulti ho rahi hai" -> "symptoms": ["pet dard", "ulti"]
-  - "50 yo with cough and fever" -> "symptoms": ["cough", "fever"]
+  - "50 yo with cough and high fever" -> "symptoms": ["cough", "high fever"]
+  - "mild fever" -> "symptoms": ["mild fever"]   (NOT ["fever"] -- keep the qualifier)
+  - "cough" -> "symptoms": ["cough"]
   - "baby not feeding well" -> "symptoms": ["not feeding well"]
+  - "my son is 3 years old" -> "symptoms": []
+  - "thank you" -> "symptoms": []
+  - "hello doctor, are you there?" -> "symptoms": []
 
 Only set a danger_signs/cough/diarrhea field to true or false if the message actually states or \
 clearly implies it; otherwise leave it null. Exam-only signs (breathing rate count, chest indrawing, \
@@ -374,10 +390,12 @@ def _sanitize_enum_fields(parsed: dict) -> dict:
     garbage through as if it were data" -- not to guess what the model
     meant.
 
-      - severity: an unrecognized string -> "unknown". "unknown" IS a
-        first-class, honest value on the severity scale (there is no
-        "severity not assessed" state distinct from it), so this is a safe
-        floor, not an invented value.
+      - severity: an unrecognized string OR an explicit null -> "unknown".
+        "unknown" IS a first-class, honest value on the severity scale (there
+        is no "severity not assessed" state distinct from it), so this is a
+        safe floor, not an invented value. The explicit-null case matters in
+        practice: it was the sole cause of every observed extraction failure
+        (D-SEV, see the inline note below).
       - age_group: an unrecognized string -> None ("not stated"). Unlike
         severity, age_group now has a real absent state (Optional, default
         None), and None/UNKNOWN are NOT the same: None = "we don't have a
@@ -401,9 +419,21 @@ def _sanitize_enum_fields(parsed: dict) -> dict:
     that distinction is the hard safety requirement this schema exists to
     enforce."""
     parsed = dict(parsed)
-    sev = parsed.get("severity")
-    if sev is not None and sev not in {e.value for e in Severity}:
-        parsed["severity"] = Severity.UNKNOWN.value
+    # D-SEV: an EXPLICIT `"severity": null` must be handled here, not left to
+    # pydantic. `ExtractedCase.severity` is non-Optional (default UNKNOWN), so
+    # a present-but-null key raised ExtractionValidationError and threw the
+    # whole case away. Measured on the labelled fixture, that single branch
+    # accounted for EVERY extraction failure (4/30 = 13.3%): llama3.2:3b emits
+    # `severity: null` for bare complaints like "chest pain" / "headache".
+    # Mapping it to UNKNOWN is the same decision this function already makes
+    # for an unrecognized string, and is sound for the reason given above:
+    # UNKNOWN is a first-class, honest point on the severity scale, so there is
+    # no information to lose. Absent key -> untouched (pydantic's default
+    # applies); only a present null/garbage value is normalized.
+    if "severity" in parsed:
+        sev = parsed["severity"]
+        if sev is None or sev not in {e.value for e in Severity}:
+            parsed["severity"] = Severity.UNKNOWN.value
     ag = parsed.get("age_group")
     if ag is not None and ag not in {e.value for e in AgeGroup}:
         parsed["age_group"] = None
@@ -806,6 +836,14 @@ def _split_symptom_clauses(text: str) -> list[str]:
     return clauses or [text]
 
 
+# Guards for the terse-message safety net in _apply_disambiguation(). Only a
+# very short message is eligible (a long message the model found no symptom in
+# is a genuine "no symptom stated", not a dropped one), and only a near-exact
+# vocabulary match passes. See the inline rationale for the measured margin.
+_RAW_TEXT_FALLBACK_MAX_WORDS = 4
+_RAW_TEXT_FALLBACK_MIN_CONFIDENCE = 0.90
+
+
 def _apply_disambiguation(case: ExtractedCase, disambiguator: Disambiguator) -> ExtractedCase:
     """Runs disambiguation on the free-text `symptom` field once, applies
     its result to `symptom`/`disambiguation_confidence`, and then hands the
@@ -855,6 +893,34 @@ def _apply_disambiguation(case: ExtractedCase, disambiguator: Disambiguator) -> 
     source_phrases = list(case.symptoms) or (
         _split_symptom_clauses(case.symptom) if case.symptom else []
     )
+
+    # SAFETY NET for a terse message the model drops entirely. llama3.2:3b
+    # returns symptoms=[] for the bare one-word message "cough" (while
+    # handling "I have a cough" and even "khaansi" correctly) -- a message
+    # that IS a symptom name should never yield zero symptoms. When extraction
+    # found nothing at all, the raw message itself is offered as one candidate
+    # phrase.
+    #
+    # Gated at HIGH confidence, and that gate is load-bearing rather than
+    # decorative: the production threshold of 0.45 does NOT reliably reject
+    # non-symptom text. Measured against this index, "thank you" -> diarrhoea
+    # at 0.529, "my name is Ram" -> chest_pain at 0.504 and "35" -> diarrhoea
+    # at 0.583, all of which clear 0.45. Normally the LLM shields the matcher
+    # from such text by only emitting clinical phrases, so bypassing it needs
+    # a much stricter bar. Exact/near-exact symptom names score >= 0.98 while
+    # the observed non-symptom phrases top out at 0.583, so any cut in that
+    # gap behaves identically -- the value is not finely tuned, and
+    # tests/test_extraction_coverage.py locks the adversarial cases.
+    if not source_phrases and case.raw_symptom_text:
+        raw = case.raw_symptom_text.strip()
+        if raw and len(raw.split()) <= _RAW_TEXT_FALLBACK_MAX_WORDS:
+            probe = disambiguator.match_dataset_symptom(raw)
+            if (
+                probe.matched_category is not None
+                and probe.confidence >= _RAW_TEXT_FALLBACK_MIN_CONFIDENCE
+            ):
+                source_phrases = [raw]
+
     if case.symptom is None and not source_phrases:
         return case
 
@@ -1129,13 +1195,36 @@ def next_followup_question(
     clf = get_default_classifier()
     rows_by_disease = clf._rows_by_disease
     severity_map = {d: severity_for_disease(d).value for d in result.prediction_set}
+
+    # Real posteriors instead of a uniform prior. `result.candidates` carries
+    # the emergency-boosted, renormalized NB scores the CP gate just computed,
+    # so passing them makes the information-gain calculation weight each
+    # disease by how likely it actually is. Previously this was hardcoded to
+    # None, which made the selector assume every disease in the set was
+    # equally probable -- discarding information the pipeline had already
+    # produced one function call earlier.
+    #
+    # Defensive: only used when every prediction-set member has a score, so a
+    # partial candidate list (e.g. the ABSTAIN path truncates to 5) falls back
+    # to the uniform prior rather than silently scoring on a subset.
+    in_set = set(result.prediction_set)
+    scores = {c.name: c.score for c in result.candidates if c.name in in_set}
+    posteriors = None
+    if in_set and in_set.issubset(scores) and sum(scores.values()) > 0:
+        total = sum(scores[d] for d in in_set)
+        posteriors = {d: scores[d] / total for d in in_set}
+
     fq = fqs.select_followup_question(
         prediction_set=result.prediction_set,
         severity_map=severity_map,
-        known_tokens=list(case.symptom_tokens) + [t["token"] for t in trail],
+        known_tokens=(
+            list(case.symptom_tokens)
+            + list(case.absent_symptom_tokens)
+            + [t["token"] for t in trail]
+        ),
         rows_by_disease=rows_by_disease,
         vocabulary=list(clf.kb.vocabulary),
-        posteriors=None,
+        posteriors=posteriors,
         loop_count=len(trail),
     )
     if fq is None:
@@ -1153,13 +1242,32 @@ def record_followup_answer(
     question: str,
     answer: str,
 ) -> "ExtractedCase":
-    """Store one Q&A in the trail and fold a 'yes' into the case's symptom
-    tokens. The returned case still carries the original message and every
-    earlier answer, so the next classify() sees all of it. A 'no' only stops
-    the symptom being asked again (the classifier scores reported symptoms)."""
+    """Store one Q&A in the trail and fold the answer into the case.
+
+    A 'yes' appends to `symptom_tokens` (a positive finding). A 'no' appends
+    to `absent_symptom_tokens` (a CONFIRMED NEGATIVE finding), which the
+    classifier turns into a Bernoulli absence term.
+
+    A 'no' used to be recorded in the trail only, purely to stop the same
+    question being re-asked. That wasted the answer: the question had been
+    chosen by information gain, which models P(absent) as well as P(present),
+    so discarding denials left the selector optimising for evidence the model
+    then ignored -- and measurably so (resolution 0.204, no better than asking
+    a random relevant question). Keeping them raises resolution to 0.718
+    (tests/evaluate_followup.py).
+
+    The two lists stay separate on purpose: an absent token must never leak
+    into `symptom_tokens`, where it would be read as a positive finding. An
+    unparseable answer updates neither list (the UI re-prompts instead).
+    """
     trail.append({"question": question, "answer": answer, "token": token})
-    if parse_yes_no(answer) is True and token not in case.symptom_tokens:
+    verdict = parse_yes_no(answer)
+    if verdict is True and token not in case.symptom_tokens:
         case = case.model_copy(update={"symptom_tokens": case.symptom_tokens + [token]})
+    elif verdict is False and token not in case.absent_symptom_tokens:
+        case = case.model_copy(
+            update={"absent_symptom_tokens": case.absent_symptom_tokens + [token]}
+        )
     return case
 
 

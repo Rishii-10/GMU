@@ -63,11 +63,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from app.disease_classifier import (
     DEFAULT_CP_ALPHA,
     _fit_naive_bayes,
+    _nb_posteriors_with_absence,
     get_default_classifier,
     severity_for_disease,
 )
 from app.disease_kb import DiseaseKB
-from app.followup_question_selector import _relevant_tokens, _symptom_freq, select_followup_question
+from app.followup_question_selector import (
+    _MIN_RELEVANCE_FREQ,
+    _relevant_tokens,
+    _symptom_freq,
+    select_followup_question,
+)
 from app.schemas import SEVERITY_RANK, ClassificationLabel
 from tests.evaluate_oos import (
     _FULL_SYSTEM,
@@ -89,37 +95,38 @@ STRATEGIES = ("selector", "frequency", "random")
 def _posteriors(fold_clf, present, absent, train_rows):
     """NB posterior over the fold-trained model.
 
-    With `absent` empty this is exactly the production present-only posterior.
-    With `absent` non-empty it adds a Laplace-smoothed Bernoulli absence term
-    log(1 - P(token present | disease)), i.e. a "no" becomes real evidence.
+    With `absent` empty this is the production present-only posterior. With
+    `absent` non-empty it delegates to the PRODUCTION absence-aware scorer
+    `app.disease_classifier._nb_posteriors_with_absence` -- the same function
+    `DiseaseClassifier._raw_posteriors` calls at inference.
+
+    This harness previously carried its OWN copy of the absence math, which
+    applied the Bernoulli penalty across all 41 diseases. That version let
+    denials flatten the posterior and admit diseases the positive evidence
+    never supported (see the production docstring for the measured
+    ["cough"] -> 28-disease case). Delegating guarantees the number this
+    harness reports is the number the shipped system produces, and that the
+    two can never diverge again.
     """
     vocab = set(fold_clf._vocab)
     pres = sorted({t for t in present if t in vocab})
     absent_only = sorted({t for t in absent if t in vocab} - set(pres))
     if not absent_only:
         return fold_clf.posteriors(pres)
-    if not pres and not absent_only:
+    if not pres:
         return {}
-
-    logs = {}
-    for d in fold_clf._diseases:
-        total = fold_clf._lp[d]
-        for t in pres:
-            total += fold_clf._ll[d][t]
-        rows = train_rows.get(d, [])
-        n = len(rows)
-        for t in absent_only:
-            count = sum(1 for r in rows if t in r)
-            p_present = (count + 1.0) / (n + 2.0)   # Laplace-smoothed Bernoulli
-            total += math.log(max(1e-12, 1.0 - p_present))
-        logs[d] = total
-    top = max(logs.values())
-    exps = {d: math.exp(v - top) for d, v in logs.items()}
-    denom = sum(exps.values())
-    return {d: v / denom for d, v in exps.items()} if denom > 0 else {}
+    return _nb_posteriors_with_absence(
+        pres,
+        absent_only,
+        fold_clf._diseases,
+        fold_clf._lp,
+        fold_clf._ll,
+        train_rows,
+    )
 
 
-def _pick_token(strategy, prediction_set, severity_map, known, train_rows, vocab, rng):
+def _pick_token(strategy, prediction_set, severity_map, known, train_rows, vocab, rng,
+                min_relevance=_MIN_RELEVANCE_FREQ):
     """Choose the next symptom to ask about. All strategies draw from the same
     clinically-relevant pool so only the ranking rule differs."""
     if strategy == "selector":
@@ -129,10 +136,11 @@ def _pick_token(strategy, prediction_set, severity_map, known, train_rows, vocab
             known_tokens=list(known),
             rows_by_disease=train_rows,
             vocabulary=vocab,
+            min_relevance=min_relevance,
         )
         return q.symptom_token if q else None
 
-    pool = _relevant_tokens(list(prediction_set), set(known), train_rows, vocab)
+    pool = _relevant_tokens(list(prediction_set), set(known), train_rows, vocab, min_relevance)
     if not pool:
         return None
     if strategy == "random":
@@ -145,7 +153,8 @@ def _pick_token(strategy, prediction_set, severity_map, known, train_rows, vocab
     raise ValueError(f"unknown strategy {strategy}")
 
 
-def _run_one(strategy, use_negative_evidence, kb, full, rng_seed=_SEED):
+def _run_one(strategy, use_negative_evidence, kb, full, rng_seed=_SEED,
+             min_relevance=_MIN_RELEVANCE_FREQ):
     """One full pass over the held-out set under a given questioning policy."""
     rows_by_disease = full._rows_by_disease
     vocab = full.vocabulary
@@ -193,7 +202,7 @@ def _run_one(strategy, use_negative_evidence, kb, full, rng_seed=_SEED):
                 token = _pick_token(
                     strategy, current["prediction_set"],
                     {d: severity_map_all[d] for d in current["prediction_set"]},
-                    present + absent, train, vocab, pick_rng,
+                    present + absent, train, vocab, pick_rng, min_relevance,
                 )
                 if token is None:
                     break
@@ -292,7 +301,85 @@ def run_followup_evaluation() -> dict:
         k: out["strategies"]["selector"][k]
         for k in ("present_only_production", "with_negative_evidence")
     }
+    out["relevance_threshold_sweep"] = sweep_relevance_threshold(kb, full)
+    out["symptom_association_characterization"] = characterize_symptom_associations(full)
     return out
+
+
+# Grid for _MIN_RELEVANCE_FREQ: a token is an eligible question only if it
+# appears in at least this fraction of some prediction-set disease's rows.
+RELEVANCE_GRID = [0.10, 0.20, 0.30, 0.50, 0.70]
+
+
+def sweep_relevance_threshold(kb, full) -> list[dict]:
+    """Sensitivity of the loop to the clinical-relevance cut-off.
+
+    0.30 was chosen when the constraint was introduced to stop the selector
+    asking questions that split the dataset but made no sense for the
+    differential. It was never swept, so it was an unexamined constant sitting
+    in front of the paper's core mechanism. Reported as a curve: if resolution
+    is flat across the grid the exact value does not matter and the choice is
+    defensible; if it is peaked, the value needs justifying.
+    """
+    rows = []
+    for thr in RELEVANCE_GRID:
+        m = _summarize(_run_one("selector", True, kb, full, min_relevance=thr))
+        rows.append({
+            "min_relevance": thr,
+            "resolution_rate_of_uncertain": m["resolution_rate_of_uncertain"],
+            "mean_questions_on_uncertain": m["mean_questions_on_uncertain"],
+            "mean_set_size_after": m["mean_set_size_after"],
+            "resolved_correctly_rate": m["resolved_correctly_rate"],
+            "under_triage_after": m["under_triage_after"],
+            "over_triage_after": m["over_triage_after"],
+        })
+    return rows
+
+
+def characterize_symptom_associations(full) -> dict:
+    """Why the relevance sweep above is flat -- and it is not a wiring bug.
+
+    Measured over every (disease, present-token) pair in the dataset: 85.4% of
+    associations hold in >= 95% of that disease's rows, 100% hold in >= 70%,
+    and NONE fall below 0.70. The symptom-disease relation in this Kaggle-style
+    data is therefore effectively BINARY: a symptom is in essentially all of a
+    disease's rows or none of them.
+
+    Two consequences worth stating rather than discovering later:
+      * any relevance cut-off in [0, 0.70] selects the identical token pool, so
+        the shipped 0.30 is insensitive -- defensible precisely because it does
+        not matter, which a sweep can show and an assertion cannot.
+      * real clinical symptom-disease relations are probabilistic, not binary,
+        so the information-gain selector has far less headroom here than it
+        would on real data. This limits how much the follow-up numbers can be
+        extrapolated, and belongs in the limitations rather than the results.
+    """
+    buckets = {">=0.95": 0, "0.70-0.95": 0, "0.30-0.70": 0, "<0.30": 0}
+    total = 0
+    for _disease, rows in full._rows_by_disease.items():
+        n = len(rows)
+        if not n:
+            continue
+        for token in {t for r in rows for t in r}:
+            freq = sum(1 for r in rows if token in r) / n
+            total += 1
+            if freq >= 0.95:
+                buckets[">=0.95"] += 1
+            elif freq >= 0.70:
+                buckets["0.70-0.95"] += 1
+            elif freq >= 0.30:
+                buckets["0.30-0.70"] += 1
+            else:
+                buckets["<0.30"] += 1
+    return {
+        "n_disease_token_pairs": total,
+        "frequency_distribution": buckets,
+        "relation_is_effectively_binary": buckets["0.30-0.70"] == 0 and buckets["<0.30"] == 0,
+        "implication": "any relevance cut-off in [0, 0.70] yields the same token "
+                       "pool, so _MIN_RELEVANCE_FREQ=0.30 is insensitive; and the "
+                       "near-binary associations give the information-gain "
+                       "selector less headroom than real probabilistic data would",
+    }
 
 
 def print_report(ev: dict, out_dir: Path) -> None:
@@ -317,6 +404,26 @@ def print_report(ev: dict, out_dir: Path) -> None:
                   f"{m['mean_set_size_before']:>12.3f}{m['mean_set_size_after']:>11.3f}"
                   f"{m['resolved_correctly_rate']:>9.4f}"
                   f"{m['under_triage_after']:>8.4f}{m['over_triage_after']:>8.4f}")
+
+    sweep = ev.get("relevance_threshold_sweep") or []
+    if sweep:
+        print("\n  clinical-relevance threshold sensitivity (selector, absence-aware)")
+        print(f"  {'min_rel':<10}{'resolved':>10}{'mean Q':>9}{'set after':>11}"
+              f"{'correct':>9}{'under':>8}{'over':>8}")
+        print("  " + "-" * 65)
+        for r in sweep:
+            print(f"  {r['min_relevance']:<10.2f}{r['resolution_rate_of_uncertain']:>10.4f}"
+                  f"{r['mean_questions_on_uncertain']:>9.2f}{r['mean_set_size_after']:>11.3f}"
+                  f"{r['resolved_correctly_rate']:>9.4f}"
+                  f"{r['under_triage_after']:>8.4f}{r['over_triage_after']:>8.4f}")
+
+    ch = ev.get("symptom_association_characterization")
+    if ch:
+        print(f"\n  why that sweep is flat: over {ch['n_disease_token_pairs']} "
+              f"(disease, token) pairs the association frequency is "
+              f"{ch['frequency_distribution']}")
+        print(f"  effectively binary: {ch['relation_is_effectively_binary']} -- "
+              f"any cut-off in [0, 0.70] gives the same pool")
 
     base = ev["strategies"]["selector"]["with_negative_evidence"]
     print(f"\n  triage effect of the loop (selector, absence-aware): under-triage "

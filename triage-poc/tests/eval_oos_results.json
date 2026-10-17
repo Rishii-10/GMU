@@ -16,6 +16,8 @@
   "selective_risk_on_confident": 0.0,
   "silent_error_rate": 0.0,
   "abstain_or_ask_rate": 0.3388,
+  "mean_set_size": 2.1283,
+  "lac_empty_fallback_rate": 0.3388,
   "label_distribution": {
     "MILD": 26,
     "MODERATE": 102,
@@ -24,6 +26,7 @@
   },
   "regime": "out-of-sample (leave-profiles-out 5-fold) + short message (2-4 tokens)",
   "alpha": 0.1,
+  "emergency_safety_factor": 3.0,
   "subset_robustness_label_agreement": 0.8664,
   "subset_robustness_pairs_compared": 277,
   "under_triage_design_bound_alpha": 0.1,
@@ -47,6 +50,8 @@
       "selective_risk_on_confident": 0.0,
       "silent_error_rate": 0.0,
       "abstain_or_ask_rate": 0.3388,
+      "mean_set_size": 2.1283,
+      "lac_empty_fallback_rate": 0.3388,
       "label_distribution": {
         "MILD": 31,
         "MODERATE": 128,
@@ -72,6 +77,8 @@
       "selective_risk_on_confident": 0.0,
       "silent_error_rate": 0.0,
       "abstain_or_ask_rate": 0.3421,
+      "mean_set_size": 2.1447,
+      "lac_empty_fallback_rate": 0.3421,
       "label_distribution": {
         "MILD": 26,
         "MODERATE": 102,
@@ -95,6 +102,8 @@
       "selective_risk_on_confident": 0.0789,
       "silent_error_rate": 0.0789,
       "abstain_or_ask_rate": 0.0,
+      "mean_set_size": 1.0,
+      "lac_empty_fallback_rate": 0.0,
       "label_distribution": {
         "MILD": 31,
         "MODERATE": 128,

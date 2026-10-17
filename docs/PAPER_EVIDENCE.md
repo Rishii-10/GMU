@@ -63,12 +63,12 @@ paper is about: no single module decides safety alone.
 
 | Claim | Code mechanism | Evidence / metric |
 |---|---|---|
-| **(i) Robust extraction under language variation** | `agent1_extraction`: `symptoms` LIST contract + `_normalize_symptom_fields`; `_SYMPTOM_CLAUSE_SPLIT` code-mixed conjunctions (aur/और/…) | `tests/test_extraction_coverage.py` (22): MI → {chest_pain, sweating, breathlessness, vomiting}; "pet dard aur ulti" → {stomach_pain, vomiting}. **Quantified (§3.4):** on the labelled Hindi/Hinglish/English fixture, schema-valid 86.7%, expected-token recall 80.0%, failure 13.3%. |
+| **(i) Robust extraction under language variation** | `agent1_extraction`: `symptoms` LIST contract + `_normalize_symptom_fields`; `_SYMPTOM_CLAUSE_SPLIT` code-mixed conjunctions (aur/और/…); D-SEV null-severity fix; terse-message safety net | `tests/test_extraction_coverage.py` (36). **Quantified (§3.4):** on the labelled Hindi/Hinglish/English fixture, schema-valid **100%**, expected-token recall **100%**, failure **0%** (was 86.7 / 80.0 / 13.3 — a single schema bug accounted for every failure). **End-to-end (§3.5):** token recall 96.2% on real code-mixed lay phrasings. |
 | **(ii) Safety-calibrated abstain** (CP non-vacuous) | `disease_classifier.classify_with_cp`: split conformal / LAC on the emergency-boosted NB posterior, α=0.10, q̂≈0.022 | `tests/test_cp_calibration.py` (7): q̂<1; set shrinks with evidence (6→3→2); posteriors non-degenerate; ECE≈0/Brier≈0.009 reported. |
 | **Does not miss emergencies** (under-triage bounded by α) | `rules_engine`: worst-case severity on UNCERTAIN/ABSTAIN-with-EMG/SEV; `_apply_danger_sign_override` across all adult CP decisions | `tests/test_safety_guardrail.py` (43, build-failing); **OOS short-message under-triage = 0.0 (0/142)**, vs **9.2%** for an independent NB top-1 baseline and **6.3%** when worst-case labelling is ablated (`evaluate_oos.py`, `test_eval_harness.py`). See §3.1 — this is a *design guarantee*, not an empirical discovery. |
-| **Asks, not guesses** (uncertainty → a relevant question) | `followup_question_selector`: `_relevant_tokens` constrains to clinically-characteristic discriminators; `agent1_extraction` Flow C loop | `tests/test_stage4_followup_ahp_report.py`: cough+fever → asks about phlegm (not exertional HR). OOS ask-or-abstain rate 33.9%. **Quantified in §3.3** — with absence-aware scoring the loop resolves **71.8%** of uncertain cases in 2.18 questions and cuts over-triage 21.6% → 4.9%. |
-| **(iii) Urgency prioritization** | `emergency_scorer` AHP: within-tier ESI prioritizer (not a label); weights, λmax and CR **derived from the pairwise matrix at import** (`_derive_ahp_weights`, power iteration) rather than transcribed | `tests/test_cp_ahp_adaptive.py`: weights equal the principal eigenvector; CR = **0.0198** computed (the previously quoted 0.0205 was not reproducible); CR < 0.10 enforced at import; danger-sign → ESI-1; AHP never sets the label. |
-| **(iv) Resource-aware routing** | `routing/router.route`: eligibility filter + haversine scoring | `tests/test_routing_fixtures.py`: router selects the scored-optimal eligible facility (≈100% vs brute-force worked example). |
+| **Asks, not guesses** (uncertainty → a relevant question) | `followup_question_selector`: `_relevant_tokens` + `_NOT_CALLER_ASKABLE`; real CP posteriors (not a uniform prior); `agent1_extraction` Flow C loop with denials recorded | **Quantified in §3.3** — absence-aware, the loop resolves **74.8%** of uncertain cases in 2.15 questions and cuts over-triage 21.6% → 5.6%, beating random (58.3%) and frequency (42.7%). Question quality: generic fallback phrasing **53.6% → 0%**, unanswerable tokens selected **→ 0** (`test_followup_question_quality.py`). |
+| **(iii) Urgency prioritization** | `emergency_scorer` AHP: within-tier ESI prioritizer (not a label); weights, λmax and CR **derived from the pairwise matrix at import** (`_derive_ahp_weights`, power iteration) rather than transcribed | `tests/test_cp_ahp_adaptive.py`: weights equal the principal eigenvector; CR = **0.0198** computed (the previously quoted 0.0205 was not reproducible); CR < 0.10 enforced at import. **Now measured (§3.6):** within-tier pair discrimination **0.659** over 1025 cases, so AHP carries information the tier does not; danger sign always → ESI-1. No clinical-correctness claim. |
+| **(iv) Resource-aware routing** | `routing/router.route`: eligibility filter + haversine scoring | **Now measured (§3.6):** **1.000** optimality vs exhaustive brute force over all 5 villages × 2 urgency levels; EMERGENCY eligibility and URGENT open-hours respected 1.000; mean ETA 12.0 min. Scope: 10-facility synthetic network, mock distance provider. |
 | **Robust to which symptoms get mentioned** | bag-of-token scoring + worst-case set labelling | OOS **subset robustness = 86.6%** over 277 profiles (`evaluate_oos.py`): two different 2–4 symptom subsets of the same patient agree on the tier. Honest, imperfect, and therefore informative. |
 | **Safe doctor handoff** | `routing/report._dataset_diagnosis_is_primary` gates the dataset dx | `tests/test_stage4_followup_ahp_report.py`: convulsing-infant report omits "Cervical spondylosis / heating pad". |
 
@@ -199,30 +199,154 @@ evaluated deterministically.
 
 | scoring | policy | resolved | mean Q | set before → after | resolved correctly | under | over |
 |---|---|---|---|---|---|---|---|
-| present-only (production) | **selector** | 0.204 | 2.69 | 4.33 → 3.31 | 0.204 | 0.000 | 0.216 |
+| present-only | **selector** | 0.204 | 2.69 | 4.33 → 3.31 | 0.204 | 0.000 | 0.216 |
 | present-only | frequency | 0.107 | 2.97 | 4.33 → 3.36 | 0.068 | 0.007 | 0.191 |
-| present-only | random | **0.243** | 2.68 | 4.33 → 3.44 | 0.223 | 0.000 | 0.136 |
-| absence-aware | **selector** | **0.718** | 2.18 | 4.33 → **1.97** | **0.621** | 0.021 | **0.049** |
-| absence-aware | frequency | 0.408 | 2.65 | 4.33 → 2.49 | 0.320 | 0.007 | 0.111 |
-| absence-aware | random | 0.524 | 2.44 | 4.33 → 2.42 | 0.515 | 0.000 | 0.074 |
+| present-only | random | **0.291** | 2.68 | 4.33 → 3.43 | 0.272 | 0.000 | 0.142 |
+| **absence-aware (shipped)** | **selector** | **0.748** | 2.15 | 4.33 → **1.67** | **0.670** | 0.021 | **0.056** |
+| absence-aware | frequency | 0.427 | 2.62 | 4.33 → 1.97 | 0.340 | 0.007 | 0.105 |
+| absence-aware | random | 0.583 | 2.45 | 4.33 → 1.94 | 0.544 | 0.007 | 0.086 |
 
 This is the paper's most interesting result, and it is a two-part finding:
 
-1. **Under production scoring the clever selector loses to random** (0.204 vs
-   0.243 resolved). The cause is a genuine design inconsistency: the
-   information-gain objective explicitly models `P(absent)`, but the production
-   Naive Bayes scores *present* tokens only, so a "no" teaches the classifier
-   nothing. Half the information the selector optimises for is discarded, and
-   its optimisation is wasted.
-2. **Make a "no" informative and the selector dominates.** Adding a Laplace-
-   smoothed Bernoulli absence term raises resolution **0.204 → 0.718** (3.5×),
-   correct resolution 0.204 → 0.621 (3.0×), and cuts questions 2.69 → 2.18 —
-   and the selector now beats both random (0.524) and frequency (0.408).
+1. **Under present-only scoring the clever selector loses to random** (0.204 vs
+   0.291 resolved). The cause is a genuine design inconsistency: the
+   information-gain objective explicitly models `P(absent)`, but the Naive
+   Bayes scored *present* tokens only, so a "no" taught the classifier nothing.
+   Half the information each question was selected to obtain was discarded, and
+   the optimisation was wasted.
+2. **Make a "no" informative and the selector dominates.** A Laplace-smoothed
+   Bernoulli absence term raises resolution **0.204 → 0.748** (3.7×), correct
+   resolution 0.204 → 0.670 (3.3×), cuts questions 2.69 → 2.15, and the
+   selector now beats both random (0.583) and frequency (0.427).
 
 The loop's triage effect is a favourable trade: over-triage falls **21.6% →
-4.9%** because resolved cases no longer need worst-case escalation, at the cost
-of 2.1% under-triage (still within the α=0.10 bound), with the truth retained
-in the prediction set 96.4% of the time.
+5.6%** because resolved cases no longer need worst-case escalation, at the cost
+of 2.1% under-triage (still within the α bound), with the truth retained in the
+prediction set 97.4% of the time.
+
+**This is the shipped configuration, not a variant.** Absence-aware scoring is
+in production: `ExtractedCase.absent_symptom_tokens` is populated by
+`record_followup_answer` on a parsed "no" and consumed by
+`disease_classifier._nb_posteriors_with_absence`.
+
+### A pathology found while shipping it — and why the fix matters
+
+The obvious implementation applies the absence term across all 41 diseases.
+That is correct Bayes for a true generative model, but this Naive Bayes scores
+presence only, so the two terms are not commensurable: with a few denials the
+penalties on the genuinely plausible diseases outweigh the thin positive
+signal, the posterior flattens, and diseases the denied symptoms have nothing
+to do with rise simply because they were penalised least. Measured directly,
+`["cough"]` with `chest_pain`/`phlegm`/`high_fever` denied produced a
+**28-disease** prediction set containing Paralysis and positional vertigo,
+which the worst-case rule then escalated to **EMERGENCY**. Denials made the
+system *less* certain and *more* alarmed — the exact opposite of their purpose.
+
+The fix restricts the penalty to the candidate pool that positive evidence
+supports, i.e. it conditions on the differential the patient's actual symptoms
+imply. A "no" can then only narrow or re-rank, never introduce an unsupported
+disease and never escalate the tier — properties asserted in
+`tests/test_absence_evidence.py`. It also *improved* the metrics over the
+unrestricted version (resolution 0.718 → 0.748, final set 1.97 → 1.67).
+
+Worth stating plainly in the paper: the naive version would have passed a
+casual review, because its aggregate numbers looked good. Only a monotonicity
+check on a single hand-built case exposed it.
+
+### Question quality
+
+Selection was previously driven purely by discriminative power, with 32
+templates over a 131-token vocabulary. The result was that **53.6% of questions
+fell back to a generic "Is the patient experiencing {token}?"** and the loop
+asked a layperson things like *"Is the patient experiencing acute liver
+failure?"*, *"...coma?"*, *"...receiving blood transfusion?"* — statistically
+sound, clinically incoherent, and unfixable by rewording because the chosen
+*token* is not a reportable symptom. Two mechanisms now prevent it:
+`_NOT_CALLER_ASKABLE` excludes 12 diagnosis / history / instrumented tokens
+from the candidate pool, and templates cover all 119 askable tokens. Measured
+after: generic fallback **0%**, unanswerable tokens selected **0**.
+
+## 3.5 End-to-end: free text in, tier out (`tests/evaluate_end_to_end.py`)
+
+Every other harness scores symptom *tokens*, which excludes the framework's own
+first two stages and leaves no number for the composed system. This closes that
+gap. The same folds and the same labelling logic are run twice per case —
+ORACLE on ground-truth tokens, END-TO-END on tokens recovered from rendered
+text — so the difference is attributable to extraction alone.
+
+| rendering | n | token recall | exact match | under-triage | agreement w/ oracle | extraction cost (over-triage) |
+|---|---|---|---|---|---|---|
+| canonical (ceiling) | 304 | 99.3% | 98.0% | **0.000** | 99.7% | −0.006 |
+| **lay (real code-mixed)** | 83 | **96.2%** | 89.2% | **0.000** | **97.6%** | **+0.053** |
+
+In `lay` mode every symptom is replaced by a real caregiver phrasing from the
+project's pre-existing labelled fixture, rotated across English, Hindi
+(Devanagari) and Hinglish so each message is genuinely code-mixed. Profiles
+lacking a labelled phrasing are skipped, never back-filled with the canonical
+token.
+
+**The headline: under-triage is 0.000 end-to-end in both modes.** The α-bound
+survives real extraction through code-mixed lay language; what extraction costs
+is precision (+5.3 points of over-triage, 2.4% label disagreement).
+
+> **Read the delta, not the absolute rate.** The lay subsample is selected by
+> fixture coverage rather than at random, so its absolute over-triage (0.842) is
+> dominated by whichever diseases have labelled phrasings — the oracle on those
+> identical rows is already 0.789. The harness emits
+> `sample_is_representative` and `comparison_rule` to prevent that figure being
+> quoted across modes.
+
+## 3.6 Urgency prioritization and routing (`tests/evaluate_prioritization_routing.py`)
+
+These two pillars previously had correctness tests but no measurement, so the
+paper claimed four contributions while evidencing two.
+
+| AHP (1025 cases) | result |
+|---|---|
+| Within-tier pair discrimination | **0.659** |
+| Distinct scores per tier | 3–5 (range ≥ 2 in every tier) |
+| Monotone in the severity attribute | yes |
+| Danger sign → ESI-1 / score 10, always | yes |
+
+The discrimination figure is the one that matters: AHP's declared role is
+ordering patients *within* a tier, so a scorer that tied everyone would be a
+relabelling of the tier it sits on. At 0.659 it strictly orders two-thirds of
+same-tier pairs. **No clinical-correctness claim is made** — this dataset has
+no ground-truth dispatch order.
+
+| Routing (10 scenarios) | result |
+|---|---|
+| Optimality vs exhaustive brute force | **1.000** |
+| EMERGENCY eligibility respected | **1.000** |
+| URGENT open-hours respected | **1.000** |
+| No eligible facility found | 0.000 |
+| ETA mean / max | 12.0 / 36.8 min |
+
+Scope: a 10-facility synthetic network with a mock haversine provider. This
+evaluates the routing *logic*, not real-world travel.
+
+## 3.7 Robustness and reply handling (`tests/evaluate_robustness.py`)
+
+| metric | result |
+|---|---|
+| Repeat agreement (identical message ×3) | **1.000** |
+| **Paraphrase agreement (3 real lay renderings)** | **0.750** |
+| Reply not understood (37 definite forms) | **0.000** |
+| Reply misread as the opposite answer | **0.000** |
+| Hedges coerced into an answer (11 forms) | **0.000** |
+
+Repeat and paraphrase are reported separately on purpose: the first isolates
+LLM nondeterminism, the second is the language-robustness claim. Collapsing
+them would let a perfect repeat score stand in for a language result — which is
+exactly what the removed token-order metric did.
+
+Hedge handling is a safety property, not a nicety: "maybe" / "pata nahi" must
+stay unparseable so the caller is re-prompted rather than have an invented
+clinical fact written into the case.
+
+*Provenance:* the reply list is authored, so this measures **parser coverage
+over documented reply forms**, not observed caller behaviour. Stated in the
+output itself.
 
 ## 3.4 LLM baseline and reliability (`tests/evaluate_llm.py`)
 
@@ -250,14 +374,26 @@ machinery):**
 |---|---|
 | Output validity (one of 4 tiers) | 100% (0 invalid, 0 transport errors over 304 calls) |
 | Determinism at temperature 0 | **100%** label stability (25 cases × 3 identical calls) |
-| Agent-1 extraction, schema-valid | 86.7% |
-| Agent-1 extraction, failure rate | **13.3%** |
-| Agent-1 expected-token recall | 80.0% |
+| Agent-1 extraction, schema-valid | **100%** (was 86.7%) |
+| Agent-1 extraction, failure rate | **0%** (was 13.3%) |
+| Agent-1 expected-token recall | **100%** (was 80.0%) |
 
-The last three close limitation **L4**: Agent-1 error was previously unmeasured
-and excluded from the token-level results. It is now quantified on the repo's
-existing labelled Hindi/Hinglish/English fixture, and a 13.3% extraction
-failure rate is a real, stated limit on end-to-end performance.
+These close limitation **L4**: Agent-1 error was previously unmeasured and
+excluded from the token-level results.
+
+**A finding worth reporting as a finding.** The original 13.3% failure rate was
+not a model-capability limit at all — it was a single schema bug.
+`_sanitize_enum_fields` repaired an *unrecognised* severity string but guarded
+on `sev is not None`, so an explicit `"severity": null` passed through to a
+non-Optional field and the entire case was discarded. `llama3.2:3b` emits
+exactly that for bare complaints ("chest pain", "headache", "stomach pain",
+"constipation"), and those four inputs were 100% of the failures. Two further
+prompt defects were diagnosed the same way: the model split "mild fever" into
+`symptoms:["fever"] + severity:mild` (so the token became `high_fever` — the
+matcher was innocent, scoring `mild fever → mild_fever` at 1.0), and dropped
+bare one-word messages entirely. The lesson for the paper is that what looked
+like LLM unreliability was mostly integration defects in the layer around it,
+and only measurement distinguished the two.
 
 ## 4. Logicality pass — claims that would not have survived review, now resolved
 
@@ -308,18 +444,31 @@ failure rate is a real, stated limit on end-to-end performance.
   population (n=142) is dominated by SEVERE.
 - **(L3)** `disease_severity.csv` has no documented clinical provenance; the
   severity tiers are the labels the whole safety argument is measured against.
-- **(L4, now measured)** Agent-1 extraction error is excluded from the
-  token-level results. Measured separately in §3.4: **13.3% extraction failure,
-  80.0% token recall** — so end-to-end performance is materially below the
-  token-level numbers.
+- **(L4, now CLOSED)** Agent-1 extraction error is no longer unmeasured. On the
+  labelled fixture it is **0% failure / 100% token recall** (§3.4, after the
+  D-SEV and prompt fixes), and §3.5 now reports a full **end-to-end** result
+  through real code-mixed lay language: 96.2% token recall, under-triage
+  0.000, +5.3 points of over-triage attributable to extraction.
 - **(L5)** Conformal coverage is **marginal and finite-sample** (n=304
   calibration points). Nominal coverage is slightly under-attained at tight α
   (§3.2), and at production α the gate falls back to "all candidates" on 33.9%
   of cases.
-- **(L6, now quantified and addressable)** Production scoring ignores "no"
-  answers, which makes the information-gain selector's objective incoherent and
-  costs **3.5× resolution rate** (§3.3). The absence-aware variant is evaluated
-  but is not the shipped default.
+- **(L6, now RESOLVED)** "No" answers are real evidence in production (§3.3),
+  which removed the selector/classifier misalignment and raised resolution
+  3.7×. Residual limitations: the absence term applies only within the
+  positive-evidence pool (a deliberate constraint — see the pathology in §3.3),
+  and once denials exist the conformal input is no longer exchangeable with the
+  calibration set, so the α bound becomes **approximate rather than exact**.
+  That is inherent to adaptively collected evidence and is verified empirically
+  (post-follow-up under-triage 0.021 ≤ α = 0.10) rather than assumed.
+- **(L8, new)** Dataset symptom–disease associations are effectively **binary**:
+  across 321 (disease, token) pairs, 85.4% hold in ≥95% of that disease's rows,
+  100% hold in ≥70%, and none fall below 0.70. Real clinical associations are
+  probabilistic, so the information-gain selector has markedly less headroom
+  here than it would on real data, and the follow-up figures should not be
+  extrapolated. This also explains why the relevance-threshold sweep is flat
+  (any cut-off in [0, 0.70] selects the same pool), which is what makes the
+  shipped 0.30 defensible.
 - **(L7)** The pediatric IMNCI path needs exam-only signs (breaths/min, chest
   indrawing, skin pinch) that cannot come from a text message and have no UI, so
   pediatric cases are effectively untested by these harnesses.
@@ -340,19 +489,36 @@ cd triage-poc
 python -m venv .venv && ./.venv/bin/pip install -r requirements.txt   # Python 3.11
 
 # every number in this document, in the order it appears
-PYTHONPATH=. ./.venv/bin/python tests/evaluate_oos.py          # §3.1 baseline + ablations
-PYTHONPATH=. ./.venv/bin/python tests/evaluate_sensitivity.py  # §3.2 alpha + boost sweeps
-PYTHONPATH=. ./.venv/bin/python tests/evaluate_followup.py     # §3.3 follow-up loop
-PYTHONPATH=. ./.venv/bin/python tests/evaluate_llm.py          # §3.4 needs `ollama serve`
+PYTHONPATH=. ./.venv/bin/python tests/evaluate_oos.py                     # §3.1 baseline + ablations
+PYTHONPATH=. ./.venv/bin/python tests/evaluate_sensitivity.py             # §3.2 alpha + boost sweeps
+PYTHONPATH=. ./.venv/bin/python tests/evaluate_followup.py                # §3.3 follow-up loop
+PYTHONPATH=. ./.venv/bin/python tests/evaluate_llm.py                     # §3.4 needs `ollama serve`
+PYTHONPATH=. ./.venv/bin/python tests/evaluate_end_to_end.py              # §3.5 needs Ollama + FAISS
+PYTHONPATH=. ./.venv/bin/python tests/evaluate_prioritization_routing.py  # §3.6 deterministic
+PYTHONPATH=. ./.venv/bin/python tests/evaluate_robustness.py              # §3.7 needs `ollama serve`
 
 ./.venv/bin/python -m pytest tests -q                          # full suite (CI mirrors this)
 ./.venv/bin/python -m streamlit run streamlit_app.py           # UI + evaluation view
 ```
 
 Add `--write` to any harness to refresh its tracked baseline JSON
-(`tests/eval_{oos,sensitivity,followup,llm}_results.json`); without it, results
-go to a timestamped `tests/eval_runs/` directory and the committed baselines are
-untouched. Everything except `evaluate_llm.py` is deterministic (seed 42, no
-Ollama, no FAISS). The legacy in-sample scripts
-`tests/evaluate_{100_cases,balanced,1000}.py` are retained as pipeline-wiring
-regression checks only and are **not** a source of paper numbers.
+(`tests/eval_{oos,sensitivity,followup,llm,end_to_end,robustness,prioritization_routing}_results.json`);
+without it, results go to a timestamped `tests/eval_runs/` directory and the
+committed baselines are untouched. The LLM-backed harnesses also accept
+`--limit N` for a capped pass.
+
+`evaluate_oos`, `evaluate_sensitivity`, `evaluate_followup` and
+`evaluate_prioritization_routing` are fully deterministic (seed 42, no Ollama,
+no FAISS) and reproduce byte-for-byte. `evaluate_llm`, `evaluate_end_to_end`
+and `evaluate_robustness` call a local `llama3.2:3b`, so they are reproducible
+only up to the model's own determinism — which is itself measured at 1.000
+label stability at temperature 0 (§3.7).
+
+The whole evaluation set is also browsable in the running app under the
+**📊 Results** tab, which reads the same tracked JSONs.
+
+The legacy in-sample scripts `tests/evaluate_{100_cases,balanced,1000}.py` are
+retained as pipeline-wiring regression checks only and are **not** a source of
+paper numbers. Data provenance for every input, including the author-assigned
+severity labels all safety numbers are measured against, is in
+`triage-poc/data/PROVENANCE.md`.

@@ -256,6 +256,95 @@ def _nb_posteriors(
     return {d: v / total for d, v in exp_scores.items()}
 
 
+# Laplace (add-one / Krichevsky-Trofimov style) smoothing for the Bernoulli
+# absence term: P(present | d) = (rows_with_token + 1) / (rows + 2). The +2
+# keeps P strictly inside (0, 1) so log(1 - P) is always finite even for a
+# token that appears in every row of a disease.
+_ABSENCE_SMOOTHING_NUMERATOR = 1.0
+_ABSENCE_SMOOTHING_DENOMINATOR = 2.0
+
+
+def _nb_posteriors_with_absence(
+    recognized_tokens: list[str],
+    denied_tokens: list[str],
+    diseases: list[str],
+    log_prior: dict[str, float],
+    log_likelihood: dict[str, dict[str, float]],
+    rows_by_disease: dict[str, list[list[str]]],
+) -> dict[str, float]:
+    """`_nb_posteriors` plus a Bernoulli term for DENIED symptoms, applied
+    ONLY WITHIN the differential that positive evidence established.
+
+    For each token the caller answered "no" to, a candidate is penalized by
+    log(1 - P(token present | disease)) from that disease's training rows with
+    Laplace smoothing. A disease the denied symptom is characteristic of
+    (high P) is penalized heavily; one where it is rare is barely touched --
+    exactly the discriminative signal the information-gain selector assumed it
+    would get.
+
+    WHY THE RESTRICTION TO THE POSITIVE-EVIDENCE POOL IS NOT OPTIONAL.
+    Applying absence across all 41 diseases is correct Bayes for a true
+    generative model, but this Naive Bayes scores PRESENT tokens only, so the
+    two terms are not commensurable: with a handful of denials the penalties
+    on the genuinely plausible diseases outweigh the thin positive signal, the
+    posterior flattens, and diseases the denied symptoms have nothing to do
+    with rise purely because they were penalized least. Measured directly:
+    ["cough"] with chest_pain/phlegm/high_fever denied produced a 28-disease
+    set containing Paralysis and positional vertigo, and the worst-case rule
+    then escalated it to EMERGENCY. Denials made the system LESS certain and
+    MORE alarmed -- the opposite of their purpose.
+
+    So the differential is fixed by what the patient HAS (candidates clearing
+    MIN_CANDIDATE_SCORE on the present-only posterior) and denials only
+    re-weight inside it. Formally this conditions on that candidate set; it
+    guarantees a "no" can only narrow or re-rank the differential, never
+    introduce a disease the positive evidence never supported. It also matches
+    what the follow-up question was selected to do: split the current
+    prediction set.
+
+    Kept separate from `_nb_posteriors` (rather than an optional argument) so
+    the no-denials path is provably untouched -- nothing can reach this code
+    unless a "no" was actually recorded.
+
+    NOTE on conformal validity: the CP calibration profiles carry no denials,
+    so once denials are present the input is no longer strictly exchangeable
+    with the calibration set and the alpha bound becomes approximate rather
+    than exact. Inherent to adaptively collected evidence; verified
+    empirically instead of assumed (tests/evaluate_followup.py).
+    """
+    if not diseases:
+        return {}
+
+    present = _nb_posteriors(recognized_tokens, diseases, log_prior, log_likelihood)
+    if not present:
+        return {}
+
+    # The differential positive evidence supports. Falls back to the full
+    # ranking only if nothing clears the floor, so the pool is never empty.
+    pool = [d for d, p in present.items() if p >= MIN_CANDIDATE_SCORE] or list(present)
+
+    log_posts: dict[str, float] = {}
+    for disease in pool:
+        score = math.log(present[disease]) if present[disease] > 0 else -math.inf
+        rows = rows_by_disease.get(disease, [])
+        n_rows = len(rows)
+        for token in denied_tokens:
+            present_count = sum(1 for row in rows if token in row)
+            p_present = (present_count + _ABSENCE_SMOOTHING_NUMERATOR) / (
+                n_rows + _ABSENCE_SMOOTHING_DENOMINATOR
+            )
+            score += math.log(1.0 - p_present)
+        log_posts[disease] = score
+
+    finite = {d: s for d, s in log_posts.items() if s > -math.inf}
+    if not finite:
+        return present
+    max_log = max(finite.values())
+    exp_scores = {d: math.exp(s - max_log) for d, s in finite.items()}
+    total = sum(exp_scores.values())
+    return {d: v / total for d, v in exp_scores.items()} if total > 0 else present
+
+
 def _unique_profiles_by_disease(
     rows_by_disease: dict[str, list[list[str]]],
 ) -> dict[str, list[tuple[str, ...]]]:
@@ -365,13 +454,52 @@ class DiseaseClassifier:
     # ------------------------------------------------------------------
     # Calibration and threshold derivation
     # ------------------------------------------------------------------
-    def _raw_posteriors(self, symptom_tokens: list[str]) -> dict[str, float]:
-        """Return raw NB posteriors (sum to 1) for a given symptom token list."""
+    def _raw_posteriors(
+        self,
+        symptom_tokens: list[str],
+        absent_tokens: Optional[list[str]] = None,
+    ) -> dict[str, float]:
+        """Return raw NB posteriors (sum to 1) for a given symptom token list.
+
+        `absent_tokens` are symptoms the caller EXPLICITLY DENIED (answered
+        "no" to in the Flow C follow-up loop). Each contributes a
+        Laplace-smoothed Bernoulli absence term
+        log(1 - P(token present | disease)), so a denial is real evidence that
+        pushes down diseases the symptom is characteristic of.
+
+        Why this exists: the follow-up question selector picks questions by
+        information gain, which explicitly models BOTH P(present) and
+        P(absent). Scoring present tokens only therefore discarded half the
+        information every question was chosen to obtain, and measurably so --
+        the selector performed no better than asking a random relevant
+        question (0.204 vs 0.243 resolution, tests/evaluate_followup.py).
+        With this term the objective and the update rule agree and resolution
+        rises to 0.718. See tests/eval_followup_results.json.
+
+        A token in BOTH lists is treated as present (an explicit mention wins
+        over a denial), and absence terms are skipped entirely when the list
+        is empty, so the no-follow-up path is bit-identical to before.
+        """
         vocab_set = set(self.vocabulary)
         recognized = sorted({t for t in symptom_tokens if t in vocab_set})
-        if not recognized:
+        denied = sorted(
+            {t for t in (absent_tokens or []) if t in vocab_set} - set(recognized)
+        )
+        if not recognized and not denied:
             return {}
-        return _nb_posteriors(recognized, self.kb.diseases, self._log_prior, self._log_likelihood)
+        if not denied:
+            # Unchanged fast path: identical numbers to the pre-absence model.
+            return _nb_posteriors(
+                recognized, self.kb.diseases, self._log_prior, self._log_likelihood
+            )
+        return _nb_posteriors_with_absence(
+            recognized,
+            denied,
+            self.kb.diseases,
+            self._log_prior,
+            self._log_likelihood,
+            self._rows_by_disease,
+        )
 
     def _fit_calibration_and_thresholds(self):
         """Fit the isotonic top-1 confidence calibrator, compute the Conformal
@@ -566,7 +694,10 @@ class DiseaseClassifier:
         return float(self._calibrator.transform([raw_top])[0])
 
     def classify_diseases(
-        self, symptom_tokens: list[str], top_n: Optional[int] = None
+        self,
+        symptom_tokens: list[str],
+        top_n: Optional[int] = None,
+        absent_tokens: Optional[list[str]] = None,
     ) -> list[DiseaseCandidate]:
         """Ranks all 41 diseases by posterior given the reported symptom
         tokens (already-normalized dataset vocabulary, e.g. from FAISS
@@ -583,27 +714,26 @@ class DiseaseClassifier:
         Empty symptom_tokens -> empty list: no evidence, no ranking to
         report, rather than falling back to priors alone (which would
         silently reflect "which disease has the most CSV rows" instead of
-        an honest "no signal").
+        an honest "no signal"). This holds even when `absent_tokens` is
+        non-empty: a differential must be built from what the patient HAS,
+        never from denials alone.
+
+        `absent_tokens` (explicitly denied symptoms, from the Flow C
+        follow-up loop) add a Bernoulli absence term -- see
+        _raw_posteriors() / _nb_posteriors_with_absence(). Omitted or empty,
+        the numbers are identical to the present-only model.
         """
         vocab_set = set(self.vocabulary)
         recognized = sorted({t for t in symptom_tokens if t in vocab_set})
         if not recognized:
             return []
 
-        log_posteriors: dict[str, float] = {}
-        for disease in self.kb.diseases:
-            score = self._log_prior[disease]
-            likelihoods = self._log_likelihood[disease]
-            for token in recognized:
-                score += likelihoods.get(token, 0.0)
-            log_posteriors[disease] = score
-
-        # Normalize via log-sum-exp for numerical stability, then convert to
-        # linear probabilities summing to 1 across all 41 diseases first...
-        max_log = max(log_posteriors.values())
-        exp_scores = {d: math.exp(s - max_log) for d, s in log_posteriors.items()}
-        total = sum(exp_scores.values())
-        probs = {d: v / total for d, v in exp_scores.items()}
+        # Delegated to _raw_posteriors so the present-only and absence-aware
+        # posteriors are computed in exactly ONE place (this block used to
+        # duplicate the log-sum-exp inline and could drift from it).
+        probs = self._raw_posteriors(symptom_tokens, absent_tokens)
+        if not probs:
+            return []
 
         ranked = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
         # ...then filter to the noise floor and re-normalize across just the
@@ -630,13 +760,25 @@ class DiseaseClassifier:
         return candidates
 
     def classify_with_cp(
-        self, symptom_tokens: list[str], alpha: float = DEFAULT_CP_ALPHA
+        self,
+        symptom_tokens: list[str],
+        alpha: float = DEFAULT_CP_ALPHA,
+        absent_tokens: Optional[list[str]] = None,
     ) -> ConformalResult:
         """Conformal Prediction gate (split conformal / LAC).
 
         Coverage guarantee: P(true disease ∈ prediction_set) ≥ 1 − α under
         exchangeability of calibration and test samples (Vovk 2005;
         Angelopoulos & Bates 2021).
+
+        `absent_tokens` (symptoms explicitly denied during the Flow C
+        follow-up loop) sharpen the posterior via a Bernoulli absence term.
+        IMPORTANT CAVEAT: the calibration profiles carry no denials, so once
+        denials are present the test input is no longer strictly exchangeable
+        with the calibration set and the 1 − α coverage statement becomes
+        APPROXIMATE rather than exact. This is inherent to adaptively
+        collected evidence and is verified empirically rather than assumed
+        (tests/evaluate_followup.py: post-follow-up under-triage 0.021 < α).
 
         Algorithm (Stage 3 — non-vacuous):
           1. candidates = classify_diseases() — NB softmax renormalized over
@@ -660,7 +802,7 @@ class DiseaseClassifier:
 
         No LLM call.  Returns ConformalResult with full audit trail.
         """
-        candidates = self.classify_diseases(symptom_tokens)
+        candidates = self.classify_diseases(symptom_tokens, absent_tokens=absent_tokens)
 
         if not candidates:
             return ConformalResult(

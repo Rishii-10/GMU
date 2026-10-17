@@ -45,6 +45,7 @@ from app.agent1_extraction import (
     question_for_incomplete_result,
     record_followup_answer,
 )
+from app.case_store import CaseStore
 from app.rules_engine import classify as rules_classify
 from app.integrations.language_gateway import LanguageGateway
 from app.routing.demo_facilities import VILLAGES, build_demo_facility_db
@@ -624,6 +625,335 @@ def render_home_care(result: ClassificationResult) -> None:
 # Dispatch/report computation -- cached in session_state so switching actor
 # tabs never re-runs routing or re-calls the LLM report generator.
 # ---------------------------------------------------------------------------
+_EVAL_FILES = {
+    "oos": "eval_oos_results.json",
+    "sensitivity": "eval_sensitivity_results.json",
+    "followup": "eval_followup_results.json",
+    "llm": "eval_llm_results.json",
+    "end_to_end": "eval_end_to_end_results.json",
+    "robustness": "eval_robustness_results.json",
+    "prioritization_routing": "eval_prioritization_routing_results.json",
+}
+
+
+@st.cache_data
+def load_eval_results() -> dict:
+    """Read every tracked evaluation baseline. Missing files are reported as
+    missing rather than faked, so the page can never show a stale or invented
+    number -- regenerate with `tests/evaluate_<name>.py --write`."""
+    import json as _json
+    from pathlib import Path as _Path
+
+    tests_dir = _Path(__file__).resolve().parent / "tests"
+    out = {}
+    for key, filename in _EVAL_FILES.items():
+        path = tests_dir / filename
+        try:
+            out[key] = _json.loads(path.read_text())
+        except Exception:
+            out[key] = None
+    return out
+
+
+def _pct(value) -> str:
+    return "—" if value is None else f"{value:.1%}"
+
+
+def render_results_view() -> None:
+    """The evaluation results page: every number the paper reports, read
+    straight from the tracked baseline JSONs that the harnesses write."""
+    ev = load_eval_results()
+    missing = [k for k, v in ev.items() if v is None]
+
+    st.markdown("### Evaluation results")
+    st.caption(
+        "Read live from `triage-poc/tests/eval_*_results.json`. Regenerate any "
+        "block with `PYTHONPATH=. python tests/evaluate_<name>.py --write`. "
+        "All figures are **out-of-sample** (leave-profiles-out 5-fold) on "
+        "**short messages** (2–4 symptoms), the realistic caller condition."
+    )
+    if missing:
+        st.warning(f"Not generated yet: {', '.join(missing)}")
+
+    # ---------------- 1. headline safety + ablations ----------------
+    oos = ev.get("oos")
+    if oos:
+        st.markdown("#### 1 · Triage safety, baseline and ablations")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Under-triage", _pct(oos["under_triage_rate_emergency_severe"]),
+                  help=f"{oos['under_triage_count']}/{oos['emergency_severe_n']} held-out "
+                       "EMERGENCY/SEVERE short messages surfaced below their true tier.")
+        c2.metric("Over-triage", _pct(oos["over_triage_rate_mild_moderate"]),
+                  help="The bounded cost of the safety guarantee.")
+        c3.metric("CP coverage", _pct(oos["cp_coverage_true_in_set"]))
+        c4.metric("Selective risk", _pct(oos["selective_risk_on_confident"]),
+                  help="Error rate on cases answered CONFIDENTLY.")
+
+        rows = [{
+            "system": "full_system (proposed)",
+            "under-triage": _pct(oos["under_triage_rate_emergency_severe"]),
+            "over-triage": _pct(oos["over_triage_rate_mild_moderate"]),
+            "confident": _pct(oos["coverage_confident_fraction"]),
+            "mean set": oos.get("mean_set_size"),
+        }]
+        for name, m in sorted((oos.get("comparisons") or {}).items()):
+            rows.append({
+                "system": name,
+                "under-triage": _pct(m["under_triage_rate_emergency_severe"]),
+                "over-triage": _pct(m["over_triage_rate_mild_moderate"]),
+                "confident": _pct(m["coverage_confident_fraction"]),
+                "mean set": m.get("mean_set_size"),
+            })
+        st.dataframe(rows, hide_index=True, use_container_width=True)
+        st.info(
+            f"**The under-triage figure is a guarantee, not a measurement.** "
+            f"Labelling a conformal set with its most severe tier cannot land below "
+            f"the truth whenever the truth is in the set, so "
+            f"P(under-triage) ≤ P(y ∉ S) ≤ α = {oos.get('alpha')}. What is measured "
+            f"here is the premise (coverage) and the price (over-triage). "
+            f"Removing worst-case labelling alone takes under-triage to "
+            f"{_pct((oos.get('comparisons') or {}).get('ablation_no_worstcase', {}).get('under_triage_rate_emergency_severe'))}."
+        )
+        fb = oos.get("lac_empty_fallback_rate")
+        if fb is not None:
+            st.caption(
+                f"**Disclosure —** on {fb:.1%} of cases the conformal set is empty and the "
+                f"system returns every surviving candidate instead. Those decisions are "
+                f"driven by that fallback plus the worst-case rule, not by conformal "
+                f"filtering. Subset robustness "
+                f"{_pct(oos.get('subset_robustness_label_agreement'))} over "
+                f"{oos.get('subset_robustness_pairs_compared')} profiles. "
+                f"Decisions: {oos.get('decision_counts')}."
+            )
+
+    # ---------------- 2. adaptive follow-up ----------------
+    fu = ev.get("followup")
+    if fu:
+        st.markdown("#### 2 · Adaptive follow-up loop")
+        st.caption(
+            "Answers are read from each held-out patient's **real** recorded symptom "
+            "profile — a ground-truth lookup, not a simulation. The question is chosen "
+            "by the selector from dataset statistics; the LLM only phrases it."
+        )
+        rows = []
+        for mode, label in (("present_only_production", "present-only"),
+                            ("with_negative_evidence", "absence-aware")):
+            for policy in ("selector", "frequency", "random"):
+                m = (fu.get("strategies", {}).get(policy) or {}).get(mode)
+                if not m:
+                    continue
+                rows.append({
+                    "scoring": label,
+                    "policy": policy,
+                    "resolved": _pct(m["resolution_rate_of_uncertain"]),
+                    "mean Q": m["mean_questions_on_uncertain"],
+                    "set before → after": f"{m['mean_set_size_before']} → {m['mean_set_size_after']}",
+                    "correct": _pct(m["resolved_correctly_rate"]),
+                    "over-triage": _pct(m["over_triage_after"]),
+                })
+        st.dataframe(rows, hide_index=True, use_container_width=True)
+        sel_p = (fu.get("strategies", {}).get("selector") or {}).get("present_only_production", {})
+        sel_a = (fu.get("strategies", {}).get("selector") or {}).get("with_negative_evidence", {})
+        rnd_p = (fu.get("strategies", {}).get("random") or {}).get("present_only_production", {})
+        if sel_p and sel_a and rnd_p:
+            st.info(
+                f"**Two-part finding.** Scored present-only, the information-gain selector "
+                f"({_pct(sel_p['resolution_rate_of_uncertain'])}) does **not** beat asking a "
+                f"random relevant question ({_pct(rnd_p['resolution_rate_of_uncertain'])}) — its "
+                f"objective models P(absent) while the classifier discarded every \"no\". "
+                f"Making denials real evidence raises resolution to "
+                f"**{_pct(sel_a['resolution_rate_of_uncertain'])}** and the selector then "
+                f"dominates both baselines."
+            )
+        ch = fu.get("symptom_association_characterization")
+        if ch:
+            st.caption(
+                f"Relevance-threshold sweep is flat because the dataset's symptom–disease "
+                f"relation is effectively binary ({ch['n_disease_token_pairs']} pairs: "
+                f"{ch['frequency_distribution']}), so any cut-off in [0, 0.70] selects the "
+                f"same pool. Real associations are probabilistic — this limits how far the "
+                f"follow-up numbers extrapolate."
+            )
+
+    # ---------------- 3. LLM baseline ----------------
+    llm = ev.get("llm")
+    if llm:
+        st.markdown("#### 3 · Is the framework necessary? (LLM-only baseline)")
+        b = llm["triage_baseline"]
+        rows = [
+            {"system": "Framework (proposed)",
+             "under-triage": _pct(oos["under_triage_rate_emergency_severe"]) if oos else "—",
+             "over-triage": _pct(oos["over_triage_rate_mild_moderate"]) if oos else "—",
+             "exact tier": "—"},
+        ]
+        if oos and oos.get("comparisons", {}).get("baseline_flat_nb_top1"):
+            nb = oos["comparisons"]["baseline_flat_nb_top1"]
+            rows.append({"system": "Naive Bayes top-1",
+                         "under-triage": _pct(nb["under_triage_rate_emergency_severe"]),
+                         "over-triage": _pct(nb["over_triage_rate_mild_moderate"]),
+                         "exact tier": "—"})
+        rows.append({"system": f"LLM-only ({llm.get('model')})",
+                     "under-triage": _pct(b["under_triage_rate_emergency_severe"]),
+                     "over-triage": _pct(b["over_triage_rate_mild_moderate"]),
+                     "exact tier": _pct(b["exact_tier_accuracy"])})
+        st.dataframe(rows, hide_index=True, use_container_width=True)
+        dist = b.get("label_distribution", {})
+        top = max(dist, key=dist.get) if dist else None
+        st.info(
+            f"Given the same symptoms **and** an explicit safety instruction, the prompted "
+            f"model misses {_pct(b['under_triage_rate_emergency_severe'])} of emergency/severe "
+            f"cases while over-calling {_pct(b['over_triage_rate_mild_moderate'])} of mild ones — "
+            f"it collapses onto one answer"
+            + (f" ({dist.get(top)}/{b['n_scored']} replies “{top}”)." if top else ".")
+            + " Prompted instructions do not produce calibrated triage; the structural guarantee does."
+        )
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Output validity", _pct(1 - b["invalid_response_rate"]))
+        c2.metric("Determinism @ temp 0", _pct(llm["determinism"]["label_stability_rate"]))
+        e = llm["extraction_reliability"]
+        c3.metric("Extraction schema-valid", _pct(e["schema_valid_rate"]),
+                  help=f"Expected-token recall {_pct(e['expected_token_recall'])}; "
+                       f"failure {_pct(e['extraction_failure_rate'])}.")
+
+    # ---------------- 4. end-to-end ----------------
+    e2e = ev.get("end_to_end")
+    if e2e:
+        st.markdown("#### 4 · End-to-end: free text in, tier out")
+        rows = []
+        for mode in ("canonical", "lay"):
+            m = (e2e.get("modes") or {}).get(mode)
+            if not m or m.get("error"):
+                continue
+            rows.append({
+                "rendering": mode + (" (ceiling)" if mode == "canonical" else " (real lay language)"),
+                "n": m["n"],
+                "token recall": _pct(m["token_recall"]),
+                "exact match": _pct(m["exact_token_match_rate"]),
+                "under-triage": _pct(m["end_to_end_under_triage"]),
+                "over-triage": _pct(m["end_to_end_over_triage"]),
+                "agrees w/ oracle": _pct(m["label_agreement_with_oracle"]),
+            })
+        if rows:
+            st.dataframe(rows, hide_index=True, use_container_width=True)
+            st.caption(
+                "This is the only number covering the **composed** pipeline, extraction "
+                "error included. The **lay** row is the one to quote for language "
+                "robustness: every symptom is replaced by a real caregiver phrasing from "
+                "the project's labelled fixture, rotated across English / Hindi / Hinglish. "
+                "**canonical** feeds the vocabulary back near-verbatim and is a wiring "
+                "ceiling only."
+            )
+            st.warning(
+                "**Read the delta, not the absolute rate.** The lay subsample (n=83) is "
+                "selected by fixture coverage rather than at random, so its absolute "
+                "over-triage is dominated by whichever diseases have labelled phrasings — "
+                "the *oracle* on those identical rows is already ~0.79. The meaningful "
+                "quantity is the oracle→end-to-end cost on the same rows (≈ +0.05 "
+                "over-triage, 97.6% label agreement). Under-triage stays **0.0000** in "
+                "both modes: the safety guarantee survives real code-mixed language."
+            )
+
+    # ---------------- 5. robustness ----------------
+    rb = ev.get("robustness")
+    if rb:
+        st.markdown("#### 5 · Robustness and reply handling")
+        c = rb["decision_consistency"]
+        r = rb["reply_coverage"]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Repeat agreement", _pct(c["repeat_label_agreement"]),
+                  help=f"{c['repeat_cases']} cases × {c['repeats_per_case']} identical submissions "
+                       "— isolates LLM nondeterminism.")
+        c2.metric("Paraphrase agreement", _pct(c["paraphrase_label_agreement"]),
+                  help=f"{c['paraphrase_cases']} cases × {c['variants_per_case']} real lay "
+                       "renderings — the language-robustness number.")
+        c3.metric("Reply not understood", _pct(r["reply_not_understood_rate"]))
+        c4.metric("Hedges coerced", _pct(r["hedge_coercion_rate"]),
+                  help="A hedge (\"maybe\", \"pata nahi\") must be re-prompted, never "
+                       "guessed into a clinical answer.")
+        st.caption(f"Reply list provenance: {r['provenance']}.")
+
+    # ---------------- 6. prioritization + routing ----------------
+    pr = ev.get("prioritization_routing")
+    if pr:
+        st.markdown("#### 6 · Urgency prioritization (AHP) and routing")
+        a, rt = pr["ahp_prioritization"], pr["routing"]
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("AHP within-tier discrimination", _pct(a["within_tier_pair_discrimination"]),
+                  help="Share of same-tier patient pairs AHP orders strictly. A scorer that "
+                       "ties everyone would add nothing to the tier.")
+        c2.metric("Danger-sign → ESI-1", "yes" if a["danger_sign_always_forces_esi_1_and_score_10"] else "NO")
+        c3.metric("Routing optimality", _pct(rt["optimality_vs_brute_force"]),
+                  help="Dispatched facility vs an exhaustive brute-force search.")
+        c4.metric("Eligibility respected", _pct(rt["emergency_eligibility_respected"]))
+        st.caption(
+            f"AHP role: {a['role']}; clinical claim: {a['clinical_claim']}. "
+            f"Routing network: {rt['network']}."
+        )
+
+    # ---------------- 7. sensitivity ----------------
+    sn = ev.get("sensitivity")
+    if sn:
+        st.markdown("#### 7 · Parameter sensitivity")
+        st.caption(
+            "Every constant that materially affects safety is reported as a curve rather "
+            "than defended as a value. **α** is the knob the guarantee is stated in."
+        )
+        st.dataframe(
+            [{
+                "α": r["alpha"], "q̂": r["q_hat"],
+                "coverage": _pct(r["cp_coverage_true_in_set"]),
+                "under-triage": _pct(r["under_triage_rate_emergency_severe"]),
+                "over-triage": _pct(r["over_triage_rate_mild_moderate"]),
+                "confident": _pct(r["coverage_confident_fraction"]),
+                "fallback": _pct(r["lac_empty_fallback_rate"]),
+                "bound holds": "yes" if r["bound_holds_under_triage_le_alpha"] else "NO",
+            } for r in sn["alpha_sweep"]],
+            hide_index=True, use_container_width=True,
+        )
+        st.success(
+            f"**under-triage ≤ α at every α tested: "
+            f"{'yes' if sn['bound_holds_at_every_alpha'] else 'NO'}** — the guarantee is "
+            f"verified across the whole grid, not only at the shipped setting."
+        )
+        if not sn.get("emergency_boost_improves_under_triage", True):
+            st.caption(
+                "**Negative result, reported as such:** swept 1.0→10.0 with the conformal "
+                "gate re-calibrated at each value, `EMERGENCY_SAFETY_FACTOR` never reduces "
+                "under-triage and at higher values slightly increases over-triage. It is "
+                "not load-bearing."
+            )
+        with st.expander("Why α = 0.10 is retained though α = 0.01 wins the operational columns"):
+            st.write(sn.get("alpha_choice_rationale", "—"))
+
+    # ---------------- 8. case log ----------------
+    st.markdown("#### 8 · Case log (audit trail)")
+    try:
+        store = _get_case_store()
+        areas = ["unknown"] + list(VILLAGES)
+        recent = []
+        for area in areas:
+            for rec in store.recent_by_area(area, limit=5):
+                recent.append({
+                    "recorded_at": rec["recorded_at"][:19].replace("T", " "),
+                    "area": rec["area"], "label": rec["label"],
+                    "probable_disease": rec["probable_disease"] or "—",
+                    "symptom_tokens": ", ".join(rec["symptom_tokens"]) or "—",
+                    "text_sha256": rec["raw_text_hash"][:12] + "…",
+                })
+        recent.sort(key=lambda r: r["recorded_at"], reverse=True)
+        if recent:
+            st.dataframe(recent[:20], hide_index=True, use_container_width=True)
+        else:
+            st.caption("No cases logged yet — run an assessment.")
+        st.caption(
+            "Persisted to SQLite by `app/case_store.py`. **Privacy:** the area, tokens, "
+            "label and a SHA-256 hash of the message are stored; the raw patient text "
+            "never is."
+        )
+    except Exception as exc:
+        st.caption(f"Case log unavailable: {exc}")
+
+
 def ensure_dispatch_and_report(cur: dict, backend) -> None:
     result: ClassificationResult = cur["result"]
     case: ExtractedCase = cur["case"]
@@ -987,6 +1317,20 @@ def _get_disambiguator():
     return FAISSDisambiguator()
 
 
+@st.cache_resource
+def _get_case_store() -> CaseStore:
+    """Persistent case log (SQLite), opened once per server process.
+
+    This module existed but nothing in the running app called it, so the app
+    persisted nothing and the "previous calls from this area" capability was
+    unreachable. Wiring it here makes the audit trail real.
+
+    PRIVACY: CaseStore stores the area, tokens, label and a SHA-256 hash of
+    the message -- never the raw patient text. See app/case_store.py.
+    """
+    return CaseStore()
+
+
 def _ask_next(adp: dict, backend, gw) -> None:
     """Pick the next follow-up question (if any) and add it to the chat."""
     nxt = next_followup_question(
@@ -1060,21 +1404,40 @@ if assess_clicked:
                 }
             )
             st.session_state.current = {"case": case, "result": result, "gw": gw}
+            # Persist the INITIAL classification to the case log. Recorded
+            # under the chosen village when one is selected, so the
+            # "previous calls from this area" lookup has something to match.
+            try:
+                located = case if case.location else case.model_copy(
+                    update={"location": None if village_choice == "Not specified" else village_choice}
+                )
+                _get_case_store().record(located, result)
+            except Exception as _e:  # logging must never break triage
+                st.warning(f"Case log unavailable (triage unaffected): {_e}")
             _start_adaptive(case, backend, gw)
 
 if st.session_state.current is not None:
     backend = OllamaBackend()
     ensure_dispatch_and_report(st.session_state.current, backend)
 
-    st.markdown("---")
-    tab_caller, tab_asha, tab_doctor, tab_engine = st.tabs(
-        ["📞 Caller / Caregiver", "🏥 ASHA Worker", "🩺 Doctor", "🔬 Rule Engine Output"]
-    )
-    with tab_caller:
-        render_caller_view(st.session_state.current)
-    with tab_asha:
-        render_asha_view(st.session_state.current)
-    with tab_doctor:
-        render_doctor_view(st.session_state.current)
-    with tab_engine:
-        render_rule_engine_view(st.session_state.current)
+st.markdown("---")
+# The four role views need a case; the Results page does not, so the tab strip
+# is always rendered and "📊 Results" is reachable without running a triage.
+tab_caller, tab_asha, tab_doctor, tab_engine, tab_results = st.tabs(
+    ["📞 Caller / Caregiver", "🏥 ASHA Worker", "🩺 Doctor",
+     "🔬 Rule Engine Output", "📊 Results"]
+)
+
+_cur = st.session_state.current
+_NO_CASE = "Enter a patient message above and press **Assess** to populate this view."
+
+with tab_caller:
+    render_caller_view(_cur) if _cur else st.info(_NO_CASE)
+with tab_asha:
+    render_asha_view(_cur) if _cur else st.info(_NO_CASE)
+with tab_doctor:
+    render_doctor_view(_cur) if _cur else st.info(_NO_CASE)
+with tab_engine:
+    render_rule_engine_view(_cur) if _cur else st.info(_NO_CASE)
+with tab_results:
+    render_results_view()

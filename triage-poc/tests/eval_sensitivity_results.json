@@ -4,9 +4,11 @@
     "alpha": 0.1,
     "emergency_safety_factor": 3.0
   },
+  "alpha_choice_rationale": "alpha=0.01 beats the shipped alpha=0.10 on over-triage (0.173 vs 0.216), confident rate (0.691 vs 0.661) and LAC-empty fallback (0.000 vs 0.339) at equal 0.0 under-triage -- but it buys that by making the gate near-permissive: q_hat rises from 0.0216 to 0.9682, i.e. almost every candidate clears the bar. The two settings are therefore not strictly comparable: one is a strict gate that is bypassed on 33.9% of cases, the other a weak gate that is never bypassed, and both produce similar set sizes (2.13 vs 1.86). alpha=0.10 is retained as the conventional, pre-registered value, and the fallback rate is disclosed rather than tuned away. Both columns are published so a reader can pick a different operating point.",
   "alpha_sweep": [
     {
       "alpha": 0.01,
+      "q_hat": 0.9682,
       "cp_coverage_true_in_set": 0.9836,
       "under_triage_rate_emergency_severe": 0.0,
       "over_triage_rate_mild_moderate": 0.1728,
@@ -19,6 +21,7 @@
     },
     {
       "alpha": 0.02,
+      "q_hat": 0.894,
       "cp_coverage_true_in_set": 0.9605,
       "under_triage_rate_emergency_severe": 0.007,
       "over_triage_rate_mild_moderate": 0.142,
@@ -31,6 +34,7 @@
     },
     {
       "alpha": 0.05,
+      "q_hat": 0.5424,
       "cp_coverage_true_in_set": 0.9572,
       "under_triage_rate_emergency_severe": 0.0282,
       "over_triage_rate_mild_moderate": 0.1235,
@@ -43,6 +47,7 @@
     },
     {
       "alpha": 0.1,
+      "q_hat": 0.0216,
       "cp_coverage_true_in_set": 1.0,
       "under_triage_rate_emergency_severe": 0.0,
       "over_triage_rate_mild_moderate": 0.216,
@@ -55,6 +60,7 @@
     },
     {
       "alpha": 0.15,
+      "q_hat": 0.0102,
       "cp_coverage_true_in_set": 1.0,
       "under_triage_rate_emergency_severe": 0.0,
       "over_triage_rate_mild_moderate": 0.2346,
@@ -67,6 +73,7 @@
     },
     {
       "alpha": 0.2,
+      "q_hat": 0.0,
       "cp_coverage_true_in_set": 1.0,
       "under_triage_rate_emergency_severe": 0.0,
       "over_triage_rate_mild_moderate": 0.2654,
@@ -79,6 +86,7 @@
     },
     {
       "alpha": 0.3,
+      "q_hat": 0.0,
       "cp_coverage_true_in_set": 1.0,
       "under_triage_rate_emergency_severe": 0.0,
       "over_triage_rate_mild_moderate": 0.2654,

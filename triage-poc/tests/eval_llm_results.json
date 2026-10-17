@@ -24,9 +24,9 @@
   },
   "extraction_reliability": {
     "n": 30,
-    "schema_valid_rate": 0.8667,
-    "extraction_failure_rate": 0.1333,
-    "expected_token_recall": 0.8,
+    "schema_valid_rate": 1.0,
+    "extraction_failure_rate": 0.0,
+    "expected_token_recall": 1.0,
     "note": "end-to-end E1+E2 on labelled real phrases; the OOS harness scores tokens directly and excludes this error source (L4)"
   }
 }

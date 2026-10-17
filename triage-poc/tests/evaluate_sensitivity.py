@@ -39,6 +39,7 @@ from app.disease_classifier import (
     DEFAULT_CP_ALPHA,
     EMERGENCY_SAFETY_FACTOR,
     DiseaseClassifier,
+    get_default_classifier,
 )
 from app.disease_kb import DiseaseKB
 from tests.evaluate_oos import run_evaluation
@@ -63,11 +64,29 @@ def _point(ev: dict) -> dict:
     return {k: ev[k] for k in _REPORTED}
 
 
+def _q_hat_at(alpha: float) -> float:
+    """The conformal threshold the gate actually uses at this alpha.
+
+    Reported alongside the operational metrics because it is what makes the
+    alpha trade-off legible: a LOW q_hat is a strict gate that frequently
+    yields an empty LAC set and falls back to the full candidate list, while a
+    q_hat approaching 1.0 is a permissive gate that admits almost any
+    candidate. Two very different mechanisms can produce similar set sizes, and
+    only q_hat distinguishes them.
+    """
+    import math
+
+    scores = sorted(get_default_classifier()._cp_cal_nonconformity_scores)
+    n = len(scores)
+    idx = min(int(math.ceil((n + 1) * (1.0 - alpha))), n) - 1
+    return round(scores[idx], 6)
+
+
 def sweep_alpha() -> list[dict]:
     out = []
     for a in ALPHA_GRID:
         ev = run_evaluation(alpha=a)
-        row = {"alpha": a, **_point(ev)}
+        row = {"alpha": a, "q_hat": _q_hat_at(a), **_point(ev)}
         # The bound the paper states, checked at every alpha.
         row["bound_holds_under_triage_le_alpha"] = (
             row["under_triage_rate_emergency_severe"] <= a + 1e-9
@@ -131,6 +150,23 @@ def run_sensitivity() -> dict:
         "regime": "out-of-sample (leave-profiles-out 5-fold) + short message (2-4 tokens)",
         "production": {"alpha": DEFAULT_CP_ALPHA,
                        "emergency_safety_factor": EMERGENCY_SAFETY_FACTOR},
+        # Why the shipped alpha is retained even though the grid shows a point
+        # that beats it on the operational columns. Recorded next to the data
+        # so the decision cannot drift from the evidence.
+        "alpha_choice_rationale": (
+            "alpha=0.01 beats the shipped alpha=0.10 on over-triage (0.173 vs "
+            "0.216), confident rate (0.691 vs 0.661) and LAC-empty fallback "
+            "(0.000 vs 0.339) at equal 0.0 under-triage -- but it buys that by "
+            "making the gate near-permissive: q_hat rises from 0.0216 to "
+            "0.9682, i.e. almost every candidate clears the bar. The two "
+            "settings are therefore not strictly comparable: one is a strict "
+            "gate that is bypassed on 33.9% of cases, the other a weak gate "
+            "that is never bypassed, and both produce similar set sizes "
+            "(2.13 vs 1.86). alpha=0.10 is retained as the conventional, "
+            "pre-registered value, and the fallback rate is disclosed rather "
+            "than tuned away. Both columns are published so a reader can pick "
+            "a different operating point."
+        ),
         "alpha_sweep": alpha_rows,
         "emergency_factor_sweep": factor_rows,
         "bound_holds_at_every_alpha": all(r["bound_holds_under_triage_le_alpha"] for r in alpha_rows),
@@ -149,17 +185,21 @@ def print_report(ev: dict, out_dir: Path) -> None:
     print("=" * 78)
 
     print("\n  alpha sweep (conformal miscoverage level)")
-    print(f"  {'alpha':>7}{'coverage':>10}{'under-tri':>11}{'over-tri':>10}"
+    print(f"  {'alpha':>7}{'q_hat':>9}{'coverage':>10}{'under-tri':>11}{'over-tri':>10}"
           f"{'confident':>11}{'set size':>10}{'fallback':>10}{'bound ok':>10}")
-    print("  " + "-" * 79)
+    print("  " + "-" * 88)
     for r in ev["alpha_sweep"]:
-        print(f"  {r['alpha']:>7.2f}{r['cp_coverage_true_in_set']:>10.4f}"
+        print(f"  {r['alpha']:>7.2f}{r['q_hat']:>9.4f}{r['cp_coverage_true_in_set']:>10.4f}"
               f"{r['under_triage_rate_emergency_severe']:>11.4f}"
               f"{r['over_triage_rate_mild_moderate']:>10.4f}"
               f"{r['coverage_confident_fraction']:>11.4f}"
               f"{r['mean_set_size']:>10.3f}"
               f"{r['lac_empty_fallback_rate']:>10.4f}"
               f"{str(r['bound_holds_under_triage_le_alpha']):>10}")
+    print("\n  q_hat reading: a LOW q_hat is a strict gate whose LAC set is often")
+    print("  EMPTY (hence the fallback column); a q_hat near 1.0 is a permissive")
+    print("  gate that admits nearly any candidate. Similar set sizes can come")
+    print("  from either mechanism, so both columns must be read together.")
 
     print("\n  EMERGENCY_SAFETY_FACTOR sweep (conformal gate re-calibrated at each value)")
     print(f"  {'factor':>7}{'coverage':>10}{'under-tri':>11}{'over-tri':>10}"

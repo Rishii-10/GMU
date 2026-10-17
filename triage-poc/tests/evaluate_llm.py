@@ -266,16 +266,13 @@ def print_report(ev: dict, out_dir: Path) -> None:
 
 
 if __name__ == "__main__":
-    from tests.eval_output import resolve_out_dir
+    from tests.eval_output import resolve_out_dir_and_limit
+
+    out_dir, limit = resolve_out_dir_and_limit("LLM baseline + reliability (Tier 3)")
 
     if not ollama_available():
         print(f"Ollama not reachable at {OLLAMA_URL} with {MODEL}. Start `ollama serve`.")
         raise SystemExit(1)
 
-    limit = None
-    if "--limit" in sys.argv:
-        limit = int(sys.argv[sys.argv.index("--limit") + 1])
-
-    out_dir = resolve_out_dir("LLM baseline + reliability (Tier 3)")
     print(f"Running LLM evaluation ({MODEL})... this calls the model many times.")
     print_report(run_llm_evaluation(limit), out_dir)

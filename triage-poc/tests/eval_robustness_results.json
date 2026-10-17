@@ -1,0 +1,27 @@
+{
+  "reply_coverage": {
+    "n_variants": 48,
+    "n_definite": 37,
+    "n_hedges": 11,
+    "reply_not_understood_rate": 0.0,
+    "unparsed_definite_replies": [],
+    "misread_rate": 0.0,
+    "misread_replies": [],
+    "hedge_coercion_rate": 0.0,
+    "coerced_hedges": [],
+    "provenance": "authored reply list -- measures PARSER COVERAGE over documented reply forms, NOT an observed caller rate"
+  },
+  "decision_consistency": {
+    "repeat_cases": 20,
+    "repeats_per_case": 3,
+    "repeat_label_agreement": 1.0,
+    "paraphrase_cases": 20,
+    "variants_per_case": 3,
+    "paraphrase_label_agreement": 0.75,
+    "distinct_labels_per_paraphrase_set": {
+      "1": 15,
+      "2": 5
+    },
+    "note": "REPEAT isolates LLM nondeterminism; PARAPHRASE is the language-robustness number (real labelled English / Hindi / Hinglish phrasings of the same content)"
+  }
+}

@@ -264,7 +264,9 @@ def _attach_dataset_context(result: ClassificationResult, case: ExtractedCase) -
     """
     if not case.symptom_tokens:
         return result
-    candidates = get_default_classifier().classify_diseases(case.symptom_tokens)
+    candidates = get_default_classifier().classify_diseases(
+        case.symptom_tokens, absent_tokens=case.absent_symptom_tokens
+    )
     if not candidates:
         return result
     return result.model_copy(
@@ -337,9 +339,18 @@ def classify_via_dataset(case: ExtractedCase) -> ClassificationResult:
     """
     clf = get_default_classifier()
 
-    # CP gives a formal ≥95% coverage guarantee: the true disease is in the
-    # returned prediction_set with probability ≥ 0.95 under exchangeability.
-    cp = clf.classify_with_cp(case.symptom_tokens)  # α = DEFAULT_CP_ALPHA (0.10, Stage 3)
+    # CP gives a formal ≥ (1 − α) coverage guarantee: the true disease is in
+    # the returned prediction_set with probability ≥ 0.90 at the shipped
+    # DEFAULT_CP_ALPHA = 0.10, under exchangeability of calibration and test
+    # samples. (An earlier comment here said "≥95% / ≥ 0.95", left over from
+    # the pre-Stage-3 α = 0.05 gate — the number must track α, not be
+    # restated.) `absent_symptom_tokens` carries the caller's explicit "no"
+    # answers from the Flow C loop; it is empty on the first pass, so the
+    # initial classification is unchanged, and it makes denials real evidence
+    # on every subsequent turn. See classify_with_cp's exchangeability caveat.
+    cp = clf.classify_with_cp(
+        case.symptom_tokens, absent_tokens=case.absent_symptom_tokens
+    )
 
     # --- Stage 1: full abstention — prediction set ≥ 4, CHW cannot resolve ---
     if cp.decision == "ABSTAIN":

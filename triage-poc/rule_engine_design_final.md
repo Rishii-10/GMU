@@ -184,19 +184,19 @@ Runs **only** when Stage 1 returns CONFIDENT (prediction set size = 1).
 
 ### 5.1 Six Attributes and AHP Weights
 
-Analytic Hierarchy Process (Saaty 1980) with six acuity attributes. The pairwise comparison matrix is in `app/emergency_scorer.py`'s module docstring; its principal eigenvector gives the weights below (recomputed independently: 0.382 / 0.250 / 0.160 / 0.101 / 0.064 / 0.043, λ_max = 6.12, **CR = 0.020**, below Saaty's 0.10 threshold).
+Analytic Hierarchy Process (Saaty 1980) with six acuity attributes. The pairwise comparison matrix lives in `app/emergency_scorer.py::_AHP_PAIRWISE` — the single source of the judgements — and the weights below are **computed from it at import** by `_derive_ahp_weights()` (power iteration on the principal eigenvector): λ_max = 6.1225, CI = 0.0245, **CR = 0.0198**, below Saaty's 0.10 threshold. `_validate_ahp_matrix()` rejects a non-square/non-reciprocal matrix, and construction fails outright if CR ≥ 0.10, so the weights can neither drift from the matrix nor be quoted without being derived. An earlier revision hardcoded 0.379 / 0.249 / 0.161 / 0.102 / 0.066 / 0.044 (sum 1.001) and quoted CR = 0.0205; neither was reproducible from the matrix.
 
 > An earlier revision of this section listed different attributes (Symptom Severity 0.412, Onset Speed 0.263, Vital Sign Instability 0.142, Age 0.091, Comorbidity 0.058, Duration 0.034). No vital-sign or comorbidity attribute exists in the code; the table below is what `score_emergency()` actually computes.
 
 ```mermaid
 graph TD
     ROOT["Emergency Score\n1–10"]
-    A1["Complication / deterioration probability\nw = 0.379 (per-disease table)"]
-    A2["Time-to-treatment sensitivity\nw = 0.249 (per-disease table)"]
-    A3["Disease severity tier\nw = 0.161 (MILD .15 / MODERATE .45 / SEVERE .75 / EMERGENCY 1.0)"]
-    A4["Age vulnerability\nw = 0.102 (WHO IMCI bands + ESI geriatric)"]
-    A5["Onset acuity\nw = 0.066 (from free-text duration)"]
-    A6["Transmissibility\nw = 0.044 (WHO IHR, per-disease table)"]
+    A1["Complication / deterioration probability\nw = 0.3825 (per-disease table)"]
+    A2["Time-to-treatment sensitivity\nw = 0.2504 (per-disease table)"]
+    A3["Disease severity tier\nw = 0.1596 (MILD .15 / MODERATE .45 / SEVERE .75 / EMERGENCY 1.0)"]
+    A4["Age vulnerability\nw = 0.1006 (WHO IMCI bands + ESI geriatric)"]
+    A5["Onset acuity\nw = 0.0641 (from free-text duration)"]
+    A6["Transmissibility\nw = 0.0428 (WHO IHR, per-disease table)"]
 
     ROOT --> A1
     ROOT --> A2
@@ -354,9 +354,9 @@ flowchart TD
 |---|---|
 | Method | Analytic Hierarchy Process (Saaty 1980) |
 | Attributes | 6 (complication probability, time-to-treatment, disease-severity tier, age vulnerability, onset acuity, transmissibility) — the attributes `score_emergency()` actually computes (see §5.1; NOT "symptom severity / vital signs / comorbidities / duration") |
-| Weights | 0.379 / 0.249 / 0.161 / 0.102 / 0.066 / 0.044 (principal eigenvector; recomputed 0.382/0.250/0.160/0.101/0.064/0.043) |
-| Consistency Ratio | CR ≈ 0.020 (< 0.10 per Saaty) |
-| Highest weight | Complication probability: w = 0.379 |
+| Weights | 0.3825 / 0.2504 / 0.1596 / 0.1006 / 0.0641 / 0.0428 — DERIVED at import from `_AHP_PAIRWISE` (principal eigenvector, sums to exactly 1.0), not transcribed |
+| Consistency Ratio | CR = 0.0198 computed at import (λ_max 6.1225, CI 0.0245); CR ≥ 0.10 raises |
+| Highest weight | Complication probability: w = 0.3825 |
 | Output | Score 1–10 (= round(acuity×9)+1), ESI level 1–5, band, override flag |
 | Band mapping | 8–10 → EMERGENCY · 4–7 → URGENT · 1–3 → NON-URGENT |
 | Role (Stage 4) | A within-tier **prioritizer**, not a label-setter: the triage label is the disease severity tier / worst-case / danger-sign override; AHP's score+ESI order patients WITHIN a tier for dispatch. The danger-sign override forces score 10 / ESI-1. |

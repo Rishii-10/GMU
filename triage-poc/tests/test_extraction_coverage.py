@@ -205,3 +205,90 @@ def test_coverage_noop_without_disambiguator():
     backend = _ListBackend(["chest pain", "sweating"])
     case, _ = extract_case_with_followup("x", backend, disambiguator=StubDisambiguator())
     assert case.symptom_tokens == []
+
+
+# ---------------------------------------------------------------------------
+# Terse-message safety net (_apply_disambiguation raw-text fallback).
+#
+# llama3.2:3b returns symptoms=[] for the bare one-word message "cough" while
+# handling "I have a cough" fine. A message that IS a symptom name must not
+# yield zero symptoms, so when extraction finds nothing the raw message is
+# offered to the matcher -- but only at >= 0.90 confidence.
+#
+# That high bar is the whole safety story and these tests exist to keep it.
+# At the production 0.45 threshold this index maps "thank you" -> diarrhoea
+# (0.529), "my name is Ram" -> chest_pain (0.504) and "35" -> diarrhoea
+# (0.583). Normally the LLM never hands such text to the matcher; the fallback
+# deliberately bypasses the LLM, so it must reject all of it.
+# ---------------------------------------------------------------------------
+class _EmptyExtractionBackend(LLMBackend):
+    """Stands in for the model dropping a terse message entirely."""
+
+    name = "empty_extraction_backend"
+    supports_followup = False
+
+    def extract(self, patient_text: str, context: Optional[list[str]] = None) -> dict:
+        return {"symptoms": [], "duration": None, "severity": "unknown"}
+
+
+@pytest.mark.parametrize(
+    "message,expected_token",
+    [
+        ("cough", "cough"),
+        ("vomiting", "vomiting"),
+        ("chest pain", "chest_pain"),
+        ("mild fever", "mild_fever"),
+        ("headache", "headache"),
+    ],
+)
+def test_terse_symptom_message_recovered_when_model_returns_nothing(
+    faiss_disambiguator, message, expected_token
+):
+    case, _ = extract_case_with_followup(
+        message, _EmptyExtractionBackend(), disambiguator=faiss_disambiguator
+    )
+    assert expected_token in case.symptom_tokens, (
+        f"{message!r} dropped by the model was not recovered: {case.symptom_tokens}"
+    )
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "thank you",            # -> diarrhoea 0.529 at the 0.45 threshold
+        "my name is Ram",       # -> chest_pain 0.504
+        "35",                   # -> diarrhoea 0.583
+        "hello doctor",         # -> diarrhoea 0.491
+        "I need help",          # -> diarrhoea 0.498
+        "where is the hospital",
+        "my son is 3 years old",
+    ],
+)
+def test_fallback_never_invents_a_symptom_from_non_clinical_text(
+    faiss_disambiguator, message
+):
+    case, _ = extract_case_with_followup(
+        message, _EmptyExtractionBackend(), disambiguator=faiss_disambiguator
+    )
+    assert case.symptom_tokens == [], (
+        f"{message!r} leaked a symptom token: {case.symptom_tokens}"
+    )
+
+
+def test_fallback_does_not_fire_when_the_model_did_extract_something():
+    # The net is only for a total miss; a real extraction must win.
+    backend = _ListBackend(["chest pain"])
+    case, _ = extract_case_with_followup(
+        "cough", backend, disambiguator=StubDisambiguator()
+    )
+    assert case.symptoms == ["chest pain"]
+
+
+def test_fallback_ignores_long_messages(faiss_disambiguator):
+    # A long message the model found no symptom in is a genuine negative, not
+    # a dropped terse one -- the word-count guard must keep it out.
+    long_message = "please tell me where the nearest clinic is located today"
+    case, _ = extract_case_with_followup(
+        long_message, _EmptyExtractionBackend(), disambiguator=faiss_disambiguator
+    )
+    assert case.symptom_tokens == []

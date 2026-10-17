@@ -205,6 +205,23 @@ class ExtractedCase(BaseModel):
         ),
     )
 
+    absent_symptom_tokens: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Vocabulary tokens the caller EXPLICITLY DENIED, i.e. answered "
+            "'no' to during the adaptive follow-up loop (Flow C). This is a "
+            "CONFIRMED NEGATIVE FINDING and is deliberately a separate field "
+            "from symptom_tokens so the hard invariant above still holds: an "
+            "empty symptom_tokens list never means 'absent', and an absent "
+            "token is never silently treated as present. Only ever populated "
+            "from a parsed 'no' answer -- never inferred from silence, and "
+            "never from the first free-text message (a caller not mentioning "
+            "a symptom is NOT the same as denying it). The disease classifier "
+            "turns these into a Bernoulli absence term; see "
+            "app.disease_classifier.DiseaseClassifier._raw_posteriors."
+        ),
+    )
+
     @field_validator("age_months")
     @classmethod
     def _age_months_sane(cls, v: Optional[int]) -> Optional[int]:
