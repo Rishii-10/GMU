@@ -1,0 +1,60 @@
+{
+  "alpha": 0.1,
+  "regime": "END-TO-END: rendered free text -> Agent 1 (Ollama) -> FAISS -> conformal gate -> tier; leave-profiles-out folds, same labelling logic as evaluate_oos.py",
+  "modes": {
+    "canonical": {
+      "n": 304,
+      "mode": "canonical",
+      "text_source": "canonical: de-underscored dataset tokens in a fixed template -- a CEILING / wiring check, recall ~1.0 by construction",
+      "profiles_skipped_no_lay_phrasing": 0,
+      "sample_is_representative": true,
+      "comparison_rule": "compare end_to_end against oracle WITHIN a mode; do not compare absolute rates ACROSS modes",
+      "extraction_failure_rate": 0.0033,
+      "token_recall": 0.9934,
+      "token_precision": 0.9989,
+      "spurious_tokens_per_case": 0.0033,
+      "exact_token_match_rate": 0.9803,
+      "end_to_end_under_triage": 0.0,
+      "end_to_end_over_triage": 0.2099,
+      "end_to_end_decision_counts": {
+        "CONFIDENT": 201,
+        "UNCERTAIN": 54,
+        "ABSTAIN": 49
+      },
+      "oracle_under_triage": 0.0,
+      "oracle_over_triage": 0.216,
+      "under_triage_cost_of_extraction": 0.0,
+      "over_triage_cost_of_extraction": -0.0061,
+      "label_agreement_with_oracle": 0.9967,
+      "emergency_severe_n": 142,
+      "mild_moderate_n": 162
+    },
+    "lay": {
+      "n": 83,
+      "mode": "lay",
+      "text_source": "lay: every symptom replaced by a real caregiver phrasing from the pre-existing labelled fixture tests/fixtures/symptom_calibration.py (English / Hindi / Hinglish, rotated so messages are code-mixed); profiles lacking a phrasing for any token are SKIPPED, not back-filled with the canonical token",
+      "profiles_skipped_no_lay_phrasing": 221,
+      "sample_is_representative": false,
+      "comparison_rule": "compare end_to_end against oracle WITHIN a mode; do not compare absolute rates ACROSS modes",
+      "extraction_failure_rate": 0.0,
+      "token_recall": 0.962,
+      "token_precision": 0.9661,
+      "spurious_tokens_per_case": 0.0964,
+      "exact_token_match_rate": 0.8916,
+      "end_to_end_under_triage": 0.0,
+      "end_to_end_over_triage": 0.8421,
+      "end_to_end_decision_counts": {
+        "UNCERTAIN": 32,
+        "ABSTAIN": 32,
+        "CONFIDENT": 19
+      },
+      "oracle_under_triage": 0.0,
+      "oracle_over_triage": 0.7895,
+      "under_triage_cost_of_extraction": 0.0,
+      "over_triage_cost_of_extraction": 0.0526,
+      "label_agreement_with_oracle": 0.9759,
+      "emergency_severe_n": 64,
+      "mild_moderate_n": 19
+    }
+  }
+}

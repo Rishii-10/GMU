@@ -1,0 +1,167 @@
+{
+  "ahp_prioritization": {
+    "n_scored": 1025,
+    "role": "within-tier dispatch prioritizer; does NOT set the triage label",
+    "within_tier_pair_discrimination": 0.6589,
+    "score_spread_by_tier": {
+      "MODERATE": {
+        "min": 3,
+        "max": 7,
+        "range": 4,
+        "distinct_scores": 5
+      },
+      "SEVERE": {
+        "min": 5,
+        "max": 9,
+        "range": 4,
+        "distinct_scores": 5
+      },
+      "MILD": {
+        "min": 2,
+        "max": 6,
+        "range": 4,
+        "distinct_scores": 5
+      },
+      "EMERGENCY": {
+        "min": 8,
+        "max": 10,
+        "range": 2,
+        "distinct_scores": 3
+      }
+    },
+    "esi_distribution": {
+      "1": 2,
+      "2": 149,
+      "3": 777,
+      "4": 91,
+      "5": 6
+    },
+    "monotone_in_severity_attribute": true,
+    "danger_sign_always_forces_esi_1_and_score_10": true,
+    "n_attributes": 6,
+    "clinical_claim": "none -- no ground-truth dispatch order exists in this dataset"
+  },
+  "routing": {
+    "n_scenarios": 10,
+    "network": "10-facility synthetic demo set, mock haversine distance provider -- evaluates ROUTING LOGIC, not real-world travel time",
+    "radius_km": 60.0,
+    "optimality_vs_brute_force": 1.0,
+    "emergency_eligibility_respected": 1.0,
+    "urgent_open_hours_respected": 1.0,
+    "no_facility_found_rate": 0.0,
+    "mean_eta_minutes": 11.97,
+    "max_eta_minutes": 36.8,
+    "scenarios": [
+      {
+        "village": "Denkanikottai",
+        "urgency": "EMERGENCY",
+        "n_eligible": 4,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 12.8
+      },
+      {
+        "village": "Denkanikottai",
+        "urgency": "URGENT",
+        "n_eligible": 9,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 12.8
+      },
+      {
+        "village": "Anchetty",
+        "urgency": "EMERGENCY",
+        "n_eligible": 4,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 36.8
+      },
+      {
+        "village": "Anchetty",
+        "urgency": "URGENT",
+        "n_eligible": 8,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 1.5
+      },
+      {
+        "village": "Thally",
+        "urgency": "EMERGENCY",
+        "n_eligible": 4,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 5.1
+      },
+      {
+        "village": "Thally",
+        "urgency": "URGENT",
+        "n_eligible": 9,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 5.1
+      },
+      {
+        "village": "Kelamangalam",
+        "urgency": "EMERGENCY",
+        "n_eligible": 4,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 22.7
+      },
+      {
+        "village": "Kelamangalam",
+        "urgency": "URGENT",
+        "n_eligible": 9,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 1.6
+      },
+      {
+        "village": "Bannerghatta",
+        "urgency": "EMERGENCY",
+        "n_eligible": 4,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 20.7
+      },
+      {
+        "village": "Bannerghatta",
+        "urgency": "URGENT",
+        "n_eligible": 8,
+        "found": true,
+        "brute_force_available": true,
+        "optimal": true,
+        "eligibility_respected": true,
+        "open_respected": true,
+        "eta_minutes": 0.6
+      }
+    ]
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "disclaimer": "Demonstrated on the sandbox dataset; trip/cost figures are an illustrative model with stated assumptions, not field measurements.",
+  "A_access_and_cost": {
+    "n_messages": 304,
+    "care_at_home_share": 0.4211,
+    "go_now_share": 0.5789,
+    "needs_more_info_share": 0.0,
+    "emergency_naive_nearest_ineligible_rate": 0.8,
+    "emergency_route_differs_from_naive_nearest_rate": 0.8,
+    "illustrative_model": {
+      "assumptions": "1 avoided trip ~= 4.0 h and ~Rs 300 per caller (stated, not measured)",
+      "per_1000_callers_potential_avoided_trips": 421,
+      "per_1000_callers_hours_saved": 1684,
+      "per_1000_callers_cost_saved_inr": 126316
+    },
+    "sdg": "SDG-3.8 access to essential health services; SDG-10 rural equity"
+  },
+  "B_language_reach": {
+    "sdg": "SDG-10 inclusion regardless of language; SDG-3 reaching underserved groups",
+    "note": "English/Hindi/Hinglish; an English-only pipeline drops the non-English share.",
+    "repeat_agreement": 1.0,
+    "paraphrase_agreement": 0.75,
+    "reply_not_understood_rate": 0.0,
+    "hedge_coercion_rate": 0.0,
+    "code_mixed_lay_token_recall": 0.962,
+    "code_mixed_lay_under_triage": 0.0
+  },
+  "C_caller_effort": {
+    "sdg": "SDG-3.8 usable by low-literacy, low-connectivity callers",
+    "framing": "answer ~2 yes/no questions instead of a full form or being guessed at",
+    "mean_questions_to_decision": 2.1456,
+    "resolution_rate_of_uncertain": 0.7476
+  }
+}

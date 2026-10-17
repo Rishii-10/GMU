@@ -1,0 +1,41 @@
+{
+  "metric_note": "misses_urgent = EMERGENCY/SEVERE surfaced below true tier; over_calls = MILD/MODERATE surfaced as EMERGENCY/SEVERE. Same held-out short messages throughout; C0 needs Ollama.",
+  "stage_mapping": "C1 adds no safety machinery; the conformal set enters at C2; the worst-case guard (C3) is what removes under-triage; C4 adds the follow-up loop on top of the full system.",
+  "stages": [
+    {
+      "stage": "C0",
+      "label": "LLM-only (prompt the model)",
+      "misses_urgent": 0.169,
+      "over_calls": 0.8272,
+      "source": "evaluate_llm.py"
+    },
+    {
+      "stage": "C1",
+      "label": "+ structured NB (argmax)",
+      "misses_urgent": 0.0915,
+      "over_calls": 0.0679,
+      "source": "evaluate_oos.py"
+    },
+    {
+      "stage": "C2",
+      "label": "+ abstain gate (conformal set)",
+      "misses_urgent": 0.0634,
+      "over_calls": 0.0679,
+      "source": "evaluate_oos.py"
+    },
+    {
+      "stage": "C3",
+      "label": "+ worst-case guard (full system)",
+      "misses_urgent": 0.0,
+      "over_calls": 0.216,
+      "source": "evaluate_oos.py"
+    },
+    {
+      "stage": "C4",
+      "label": "+ active follow-up (shipped)",
+      "misses_urgent": 0.0211,
+      "over_calls": 0.0556,
+      "source": "evaluate_followup.py"
+    }
+  ]
+}

@@ -203,10 +203,29 @@ def test_pipeline_dataset_tokens_feed_disease_classifier_end_to_end(faiss_disamb
     # Full pipeline: raw text -> extraction -> FAISS dataset match ->
     # symptom_tokens -> rules_engine.classify() routes adult age_group to
     # the dataset classifier and uses symptom_tokens as its evidence.
+    #
+    # A single lay token like "chest pain" is deliberately ambiguous: the
+    # dataset classifier is reached and produces a conformal set too wide to
+    # commit (>=4 diseases) -- but that set contains Heart attack (EMERGENCY).
+    # Stage 2 safety: a wide set that still contains an EMERGENCY/SEVERE disease
+    # must NOT be a silent INCOMPLETE. The engine surfaces the worst-case label
+    # (EMERGENCY) while STILL abstaining on the exact disease (probable_disease
+    # None, abstention_triggered True) so the adaptive follow-up keeps narrowing.
     from app.rules_engine import classify as rules_classify
+    from app.schemas import ClassificationLabel
 
     backend = _FixedResponseBackend(symptom_text="chest pain")
     case, _trail = extract_case_with_followup("chest pain", backend, disambiguator=faiss_disambiguator)
+    assert case.symptom_tokens == ["chest_pain"]
+
     result = rules_classify(case)
-    assert result.probable_disease is not None
+    # The dataset classifier was exercised: candidates + a wide CP set incl. the
+    # emergency option.
     assert result.candidates
+    assert "Heart attack" in result.prediction_set
+    # Stage 2: escalated to the emergency worst-case, NOT a silent INCOMPLETE,
+    # yet still abstaining on which single disease it is.
+    assert result.label == ClassificationLabel.EMERGENCY
+    assert result.condition == "EMERGENCY_IN_WIDE_DIFFERENTIAL"
+    assert result.abstention_triggered is True
+    assert result.probable_disease is None

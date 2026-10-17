@@ -175,7 +175,7 @@ def run_evaluation():
 # ---------------------------------------------------------------------------
 # Print report
 # ---------------------------------------------------------------------------
-def print_report(ev: dict) -> None:
+def print_report(ev: dict, out_dir: Path) -> None:
     cm = ev["cm"]
     b  = ev["binary"]
     prec = b["TP"] / max(b["TP"] + b["FP"], 1)
@@ -230,12 +230,12 @@ def print_report(ev: dict) -> None:
     for e in confident:
         ahp_cm[e["pred_band"]][e["ahp_band"]] += 1
     print("  AHP band by disease-tier band (rows=disease tier, cols=AHP band):")
-    for b in BANDS:
-        print(f"    {b:<12}" + "  ".join(f"{ahp_cm[b][b2]:>6}" for b2 in BANDS))
+    for bb in BANDS:
+        print(f"    {bb:<12}" + "  ".join(f"{ahp_cm[bb][b2]:>6}" for b2 in BANDS))
 
     # Save
-    out   = Path(__file__).parent / "eval_1000_results.json"
-    out2  = Path(__file__).parent / "eval_1000_log.json"
+    out   = out_dir / "eval_1000_results.json"
+    out2  = out_dir / "eval_1000_log.json"
     summary = {
         "cm": cm,
         "binary": b,
@@ -261,6 +261,9 @@ def print_report(ev: dict) -> None:
 
 
 if __name__ == "__main__":
+    from tests.eval_output import resolve_out_dir
+
+    out_dir = resolve_out_dir("1000-case balanced classifier evaluation")
     print("Running 1000-case balanced evaluation...")
     ev = run_evaluation()
-    print_report(ev)
+    print_report(ev, out_dir)

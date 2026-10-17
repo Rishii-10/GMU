@@ -40,6 +40,29 @@ the one provided. If information is missing, say so plainly rather than guessing
 markdown formatting, no more than 150 words."""
 
 
+def _dataset_diagnosis_is_primary(classification: ClassificationResult) -> bool:
+    """True only when the dataset classifier actually PRODUCED the triage
+    label -- i.e. it is safe to name a probable disease in the handoff.
+
+    Stage 4 (RPT-1): on the pediatric IMNCI path, `probable_disease` is a
+    dataset candidate attached as SUPPLEMENTARY context
+    (rules_engine._attach_dataset_context) and is clinically irrelevant to the
+    IMNCI label -- a convulsing 12-month-old (label EMERGENCY /
+    GENERAL_DANGER_SIGN) would carry e.g. probable_disease "Cervical
+    spondylosis" with "heating pad, exercise" precautions, which the report
+    must NOT relay. On that path `condition` is an IMNCI string
+    (GENERAL_DANGER_SIGN, PNEUMONIA, SOME_DEHYDRATION, ...) that differs from
+    `probable_disease`. On the adult dataset path the classifier sets
+    condition == probable_disease. Abstaining results carry no committed
+    disease. So the dataset diagnosis is primary iff it is present, it equals
+    the condition, and the engine did not abstain."""
+    return bool(
+        classification.probable_disease
+        and not classification.abstention_triggered
+        and classification.condition == classification.probable_disease
+    )
+
+
 def _build_report_prompt(
     case: ExtractedCase, classification: ClassificationResult, dispatch: DispatchResult
 ) -> str:
@@ -63,13 +86,21 @@ def _build_report_prompt(
         ]
         lines.append(f"Danger signs present: {', '.join(fired)}")
     lines.append(f"Triage classification: {classification.label.value} ({classification.condition or 'no specific condition'})")
-    if classification.probable_disease:
+    if _dataset_diagnosis_is_primary(classification):
         lines.append(
             f"Most probable disease (dataset classifier, score={classification.candidates[0].score if classification.candidates else 'n/a'}): "
             f"{classification.probable_disease}"
         )
         if classification.candidates and classification.candidates[0].precautions:
             lines.append(f"Suggested precautions on file: {', '.join(classification.candidates[0].precautions)}")
+    else:
+        # RPT-1: label is danger-sign / symptom-driven (or the engine abstained);
+        # do NOT surface the supplementary dataset disease or its precautions.
+        lines.append(
+            "No specific disease diagnosis is reliable for this case (the triage "
+            "label is driven by danger signs / symptoms or an open differential). "
+            "Do NOT name or imply a specific disease or disease-specific treatment."
+        )
     if dispatch.facility:
         lines.append(
             f"Being routed to: {dispatch.facility.name} ({dispatch.facility.facility_type.value}), "
@@ -112,7 +143,7 @@ def _fallback_report(case: ExtractedCase, classification: ClassificationResult, 
         + (f" ({classification.condition})" if classification.condition else ""),
         f"Reported: {case.raw_symptom_text}",
     ]
-    if classification.probable_disease:
+    if _dataset_diagnosis_is_primary(classification):
         parts.append(f"Probable disease (dataset classifier): {classification.probable_disease}")
     if dispatch.facility:
         parts.append(

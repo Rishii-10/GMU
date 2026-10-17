@@ -46,7 +46,7 @@ from app.agent1_extraction import (
 )
 from app.followup_policy import missing_required
 from app.rules_engine import classify
-from app.schemas import AgeGroup, ClassificationLabel, DangerSigns, ExtractedCase
+from app.schemas import AgeGroup, ClassificationLabel, DangerSigns, ExtractedCase, Severity
 from tests.test_integration_agent1_pipeline import _ollama_available
 
 
@@ -91,6 +91,48 @@ def test_sanitize_leaves_valid_age_group_untouched(good):
 
 def test_sanitize_leaves_absent_age_group_absent():
     assert "age_group" not in _sanitize_enum_fields({"severity": "mild"})
+
+
+# --- D-SEV regression: an explicit `"severity": null` must not kill the case ---
+# Measured on tests/fixtures/symptom_calibration.py, this single branch caused
+# 100% of extraction failures (4/30): llama3.2:3b emits `severity: null` for
+# bare complaints ("chest pain", "headache", "stomach pain", "constipation"),
+# and ExtractedCase.severity is non-Optional, so the whole case was discarded.
+
+
+def test_sanitize_coerces_explicit_null_severity_to_unknown():
+    assert _sanitize_enum_fields({"severity": None})["severity"] == Severity.UNKNOWN.value
+
+
+@pytest.mark.parametrize("junk", ["critical", "SEVERE", "bahut tez", "7"])
+def test_sanitize_coerces_junk_severity_to_unknown(junk):
+    assert _sanitize_enum_fields({"severity": junk})["severity"] == Severity.UNKNOWN.value
+
+
+@pytest.mark.parametrize("good", ["mild", "moderate", "severe", "unknown"])
+def test_sanitize_leaves_valid_severity_untouched(good):
+    assert _sanitize_enum_fields({"severity": good})["severity"] == good
+
+
+def test_sanitize_leaves_absent_severity_absent():
+    # Absent must stay absent so pydantic's own default applies -- only a
+    # present-but-null/garbage value is normalized.
+    assert "severity" not in _sanitize_enum_fields({"age_group": "adult"})
+
+
+def test_explicit_null_severity_builds_a_valid_case_end_to_end():
+    """The actual D-SEV failure path: a backend returning severity=None must
+    yield a usable ExtractedCase instead of ExtractionValidationError."""
+    class _NullSeverityBackend:
+        name = "null_severity_double"
+        supports_followup = False
+
+        def extract(self, text, context=None):
+            return {"symptoms": ["chest pain"], "severity": None}
+
+    case = extract_case("chest pain", _NullSeverityBackend())
+    assert case.severity == Severity.UNKNOWN
+    assert case.symptoms == ["chest pain"]
 
 
 def _min_case(**kw) -> ExtractedCase:

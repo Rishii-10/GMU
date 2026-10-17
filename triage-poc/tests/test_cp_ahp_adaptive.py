@@ -175,7 +175,55 @@ def test_red_flag_override_collapses_to_emergency_when_emergency_in_set():
 
 
 def test_ahp_weights_sum_to_one():
-    assert abs(sum(AHP_WEIGHTS.values()) - 1.0) < 0.005
+    # Derived from the eigenvector, so this is now exact rather than 1.001.
+    assert abs(sum(AHP_WEIGHTS.values()) - 1.0) < 1e-9
+
+
+def test_ahp_weights_are_derived_from_the_pairwise_matrix():
+    """The weights must be recomputable from _AHP_PAIRWISE, not transcribed.
+    Guards against anyone re-hardcoding them (the previous constants could not
+    be reproduced from the documented matrix)."""
+    from app.emergency_scorer import (
+        _AHP_CRITERIA,
+        _AHP_PAIRWISE,
+        _principal_eigenvector,
+    )
+
+    vec, _ = _principal_eigenvector(_AHP_PAIRWISE)
+    recomputed = dict(zip(_AHP_CRITERIA, vec))
+    for name, w in recomputed.items():
+        assert abs(AHP_WEIGHTS[name] - w) < 1e-9, f"{name} is not the eigenvector value"
+
+
+def test_ahp_consistency_ratio_is_computed_and_acceptable():
+    from app.emergency_scorer import (
+        AHP_CONSISTENCY_INDEX,
+        AHP_CONSISTENCY_RATIO,
+        AHP_CR_THRESHOLD,
+        AHP_LAMBDA_MAX,
+        _AHP_CRITERIA,
+        _SAATY_RANDOM_INDEX,
+    )
+
+    n = len(_AHP_CRITERIA)
+    # lambda_max >= n for any reciprocal matrix; equality only when perfectly consistent.
+    assert AHP_LAMBDA_MAX >= n - 1e-9
+    assert abs(AHP_CONSISTENCY_INDEX - (AHP_LAMBDA_MAX - n) / (n - 1)) < 1e-12
+    assert abs(AHP_CONSISTENCY_RATIO - AHP_CONSISTENCY_INDEX / _SAATY_RANDOM_INDEX[n]) < 1e-12
+    assert AHP_CONSISTENCY_RATIO < AHP_CR_THRESHOLD
+
+
+def test_ahp_weight_ordering_matches_documented_priority():
+    """ESI v5 / WHO IMCI priority ordering the matrix is meant to encode:
+    Complication > TxDelay > Severity > Age > Onset > Transmissibility."""
+    assert list(AHP_WEIGHTS) == [
+        "complication_probability",
+        "time_to_treatment",
+        "disease_severity",
+        "age_vulnerability",
+        "onset_acuity",
+        "transmissibility",
+    ]
 
 
 def test_ahp_score_in_range_and_band_consistent():

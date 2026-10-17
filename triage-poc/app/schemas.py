@@ -157,7 +157,18 @@ class ExtractedCase(BaseModel):
 
     case_id: Optional[str] = None
     raw_symptom_text: str
-    symptom: Optional[str] = None
+    symptom: Optional[str] = None  # legacy single/combined phrase (joined from `symptoms`); kept for the pediatric disambiguate() path and adult-route presence check
+    symptoms: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Every distinct symptom phrase Agent 1 extracted, one per item "
+            "(e.g. ['chest pain', 'sweating', 'breathlessness', 'vomiting']). "
+            "The LLM now returns a list so a multi-symptom message is not "
+            "collapsed to one phrase; each item is matched to a dataset token "
+            "to build symptom_tokens. Empty = none extracted yet, not a "
+            "negative finding. `symptom` is the joined legacy view of this."
+        ),
+    )
     duration: Optional[str] = None
     severity: Severity = Severity.UNKNOWN
     age_group: Optional[AgeGroup] = None
@@ -191,6 +202,23 @@ class ExtractedCase(BaseModel):
             "disambiguation against app.disease_kb.DiseaseKB.vocabulary. "
             "Empty list means 'none matched yet', not 'no symptoms' -- do "
             "not treat an empty list as a negative finding."
+        ),
+    )
+
+    absent_symptom_tokens: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Vocabulary tokens the caller EXPLICITLY DENIED, i.e. answered "
+            "'no' to during the adaptive follow-up loop (Flow C). This is a "
+            "CONFIRMED NEGATIVE FINDING and is deliberately a separate field "
+            "from symptom_tokens so the hard invariant above still holds: an "
+            "empty symptom_tokens list never means 'absent', and an absent "
+            "token is never silently treated as present. Only ever populated "
+            "from a parsed 'no' answer -- never inferred from silence, and "
+            "never from the first free-text message (a caller not mentioning "
+            "a symptom is NOT the same as denying it). The disease classifier "
+            "turns these into a Bernoulli absence term; see "
+            "app.disease_classifier.DiseaseClassifier._raw_posteriors."
         ),
     )
 

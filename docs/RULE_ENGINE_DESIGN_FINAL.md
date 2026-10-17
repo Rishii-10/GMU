@@ -184,17 +184,30 @@ Runs **only** when Stage 1 returns CONFIDENT (prediction set size = 1).
 
 ### 5.1 Six Attributes and AHP Weights
 
-Analytic Hierarchy Process (Saaty 1980) with six clinical acuity attributes. Pairwise comparison matrix yields a consistency ratio **CR = 0.0205** (well below Saaty's 0.10 threshold).
+Analytic Hierarchy Process (Saaty 1980) with six clinical acuity attributes.
+The weights, λmax and the consistency ratio are **computed from the pairwise
+matrix at import** by `emergency_scorer._derive_ahp_weights()` (power
+iteration on the principal eigenvector) — they are not transcribed constants,
+and `_validate_ahp_matrix()` rejects a non-reciprocal matrix or CR ≥ 0.10.
+Computed values: λmax = 6.1225, CI = 0.0245, **CR = 0.0198**.
+
+> CORRECTION: an earlier revision of this section listed a different attribute
+> set (Symptom Severity 0.412, Onset Speed 0.263, Vital Sign Instability 0.142,
+> Age 0.091, Comorbidity 0.058, Duration 0.034) and quoted CR = 0.0205. No
+> vital-sign or comorbidity attribute exists in the code, and neither those
+> weights nor that CR is reproducible from the matrix. The attributes and
+> weights below are what `score_emergency()` actually computes. Read the live
+> values from `AHP_WEIGHTS` / `AHP_CONSISTENCY_RATIO` rather than this table.
 
 ```mermaid
 graph TD
     ROOT["Emergency Score\n/10"]
-    A1["Symptom Severity\nw = 0.412"]
-    A2["Onset Speed\nw = 0.263"]
-    A3["Vital Sign Instability\nw = 0.142"]
-    A4["Age Vulnerability\nw = 0.091"]
-    A5["Comorbidity Burden\nw = 0.058"]
-    A6["Symptom Duration\nw = 0.034"]
+    A1["Complication probability\nw = 0.3825"]
+    A2["Time to treatment\nw = 0.2504"]
+    A3["Disease severity\nw = 0.1596"]
+    A4["Age vulnerability\nw = 0.1006"]
+    A5["Onset acuity\nw = 0.0641"]
+    A6["Transmissibility\nw = 0.0428"]
 
     ROOT --> A1
     ROOT --> A2
@@ -345,12 +358,13 @@ flowchart TD
 
 | Property | Value |
 |---|---|
-| Method | Analytic Hierarchy Process (Saaty 1980) |
-| Attributes | 6 (symptom severity, onset speed, vital signs, age vulnerability, comorbidities, duration) |
-| Consistency Ratio | CR = 0.0205 (threshold < 0.10 per Saaty) |
-| Highest weight | Symptom severity: w = 0.412 |
-| Output | Score 0–10, ESI band, override flag |
-| Band mapping | Score ≥ 8 → EMERGENCY · 5–7 → URGENT · 0–4 → NON-URGENT |
+| Method | Analytic Hierarchy Process (Saaty 1980); weights/λmax/CR derived in code |
+| Attributes | 6 (complication probability, time to treatment, disease severity, age vulnerability, onset acuity, transmissibility) |
+| Consistency Ratio | **CR = 0.0198** computed at import (threshold < 0.10 per Saaty, enforced) |
+| Highest weight | Complication probability: w = 0.3825 |
+| Output | Score 1–10, ESI band, override flag |
+| Band mapping | Score ≥ 8 → EMERGENCY · 4–7 → URGENT · ≤ 3 → NON-URGENT |
+| Role | Within-tier ESI/dispatch prioritizer — does **not** set the triage label |
 
 ### 8.5 Follow-up Question Generation (Groq LLM)
 
@@ -503,7 +517,7 @@ sequenceDiagram
 | Rule engine — nutritional status / anaemia | ✗ Not built | Step 2 of build order |
 | Rule engine — young infant (< 2 mo) | ✗ Not built | Returns INCOMPLETE_ASSESSMENT |
 | CP gate (Fix F1 + F2) | ✅ Complete | |
-| AHP Stage 2 scorer | ✅ Complete | CR = 0.0205 |
+| AHP Stage 2 scorer | ✅ Complete | CR = 0.0198 (computed at import) |
 | Follow-up question selector | ✅ Complete | Emergency-first + info-gain |
 | Groq question phrasing + template fallback | ✅ Complete | |
 | Streamlit adaptive follow-up UI | ✅ Complete | Max 3 turns |

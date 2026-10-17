@@ -132,7 +132,7 @@ flowchart TD
 
 ### 4.1 Why Conformal Prediction
 
-The Naive Bayes posterior is a ranking, not a calibrated probability. Standard reject-option methods (Youden's J threshold, gap-to-second heuristics) are ad-hoc and provide no formal guarantee. **Split Conformal Prediction** (Vovk 2005; Angelopoulos & Bates 2021) gives a formal ≥ 95 % coverage guarantee:
+The Naive Bayes posterior is a ranking, not a calibrated probability. Standard reject-option methods (Youden's J threshold, gap-to-second heuristics) are ad-hoc and provide no formal guarantee — and were removed from this engine (the τ/δ path was dead code). **Split Conformal Prediction** (Vovk 2005; Angelopoulos & Bates 2021) gives a distribution-free ≥ 1 − α coverage guarantee (α = 0.10 here → ≥ 90 % nominal; empirical held-out ≈ 99 %):
 
 > *With probability ≥ 1 − α, the true disease is contained in the CP prediction set.*
 
@@ -161,10 +161,10 @@ flowchart LR
 
 | Parameter | Value | Meaning |
 |---|---|---|
-| α (alpha) | 0.05 | Miscoverage budget → ≥ 95% coverage guarantee |
+| α (alpha) | `DEFAULT_CP_ALPHA` = 0.10 | Miscoverage budget → ≥ 90% nominal coverage (empirical held-out ≈ 99%). Tuned on out-of-fold data in Stage 3: it keeps q̂ non-vacuous (≈ 0.022, vs the old degenerate q̂ = 1.0 at α = 0.05), minimises under-triage, and leaves a meaningful UNCERTAIN rate so the follow-up loop has a role. |
 | `EMERGENCY_SAFETY_FACTOR` | 3.0 | Prior boost multiplier for EMERGENCY diseases (Fix F1) |
 | `_RED_FLAG_TOKENS` | `{altered_sensorium, weakness_of_one_body_side}` | Trigger set for deterministic override (Fix F2). Only tokens that exist in the 131-token vocabulary, appear in ≥ 80 % of an EMERGENCY disease's rows and 0 % of all other rows. Both belong to Paralysis (brain hemorrhage). **Heart attack has no red-flag token in this dataset**: its rows contain only `chest_pain`, `breathlessness`, `sweating`, `vomiting`, all shared with Tuberculosis at ≥ 90 %. |
-| Calibration split | Stratified 5-fold over the 304 unique (disease, symptom-set) profiles, seed 42 | Row-level 80/20 split was replaced because 94 % of rows are exact duplicates and leaked across the split (see `_fit_calibration_and_thresholds()` docstring). Isotonic calibration, τ/δ and the CP nonconformity scores are all out-of-fold. |
+| Calibration split | Stratified 5-fold over the 304 unique (disease, symptom-set) profiles, seed 42 | Row-level 80/20 split was replaced because 94 % of rows are exact duplicates and leaked across the split (see `_fit_calibration_and_thresholds()` docstring). The isotonic fit and the CP nonconformity scores are both out-of-fold. (There is no τ/δ — that reject option was removed in Stage 3.) |
 
 ### 4.4 Routing by Decision
 
@@ -184,19 +184,19 @@ Runs **only** when Stage 1 returns CONFIDENT (prediction set size = 1).
 
 ### 5.1 Six Attributes and AHP Weights
 
-Analytic Hierarchy Process (Saaty 1980) with six acuity attributes. The pairwise comparison matrix is in `app/emergency_scorer.py`'s module docstring; its principal eigenvector gives the weights below (recomputed independently: 0.382 / 0.250 / 0.160 / 0.101 / 0.064 / 0.043, λ_max = 6.12, **CR = 0.020**, below Saaty's 0.10 threshold).
+Analytic Hierarchy Process (Saaty 1980) with six acuity attributes. The pairwise comparison matrix lives in `app/emergency_scorer.py::_AHP_PAIRWISE` — the single source of the judgements — and the weights below are **computed from it at import** by `_derive_ahp_weights()` (power iteration on the principal eigenvector): λ_max = 6.1225, CI = 0.0245, **CR = 0.0198**, below Saaty's 0.10 threshold. `_validate_ahp_matrix()` rejects a non-square/non-reciprocal matrix, and construction fails outright if CR ≥ 0.10, so the weights can neither drift from the matrix nor be quoted without being derived. An earlier revision hardcoded 0.379 / 0.249 / 0.161 / 0.102 / 0.066 / 0.044 (sum 1.001) and quoted CR = 0.0205; neither was reproducible from the matrix.
 
 > An earlier revision of this section listed different attributes (Symptom Severity 0.412, Onset Speed 0.263, Vital Sign Instability 0.142, Age 0.091, Comorbidity 0.058, Duration 0.034). No vital-sign or comorbidity attribute exists in the code; the table below is what `score_emergency()` actually computes.
 
 ```mermaid
 graph TD
     ROOT["Emergency Score\n1–10"]
-    A1["Complication / deterioration probability\nw = 0.379 (per-disease table)"]
-    A2["Time-to-treatment sensitivity\nw = 0.249 (per-disease table)"]
-    A3["Disease severity tier\nw = 0.161 (MILD .15 / MODERATE .45 / SEVERE .75 / EMERGENCY 1.0)"]
-    A4["Age vulnerability\nw = 0.102 (WHO IMCI bands + ESI geriatric)"]
-    A5["Onset acuity\nw = 0.066 (from free-text duration)"]
-    A6["Transmissibility\nw = 0.044 (WHO IHR, per-disease table)"]
+    A1["Complication / deterioration probability\nw = 0.3825 (per-disease table)"]
+    A2["Time-to-treatment sensitivity\nw = 0.2504 (per-disease table)"]
+    A3["Disease severity tier\nw = 0.1596 (MILD .15 / MODERATE .45 / SEVERE .75 / EMERGENCY 1.0)"]
+    A4["Age vulnerability\nw = 0.1006 (WHO IMCI bands + ESI geriatric)"]
+    A5["Onset acuity\nw = 0.0641 (from free-text duration)"]
+    A6["Transmissibility\nw = 0.0428 (WHO IHR, per-disease table)"]
 
     ROOT --> A1
     ROOT --> A2
@@ -218,7 +218,7 @@ Score = `round(acuity × 9) + 1`, so the range is 1–10 (not 0–10).
 
 Additionally, any confirmed WHO IMNCI danger sign (`convulsions`, `lethargic_or_unconscious`, etc.) triggers a **hard override**: the AHP score is forced to 10 / EMERGENCY **and the `ClassificationResult.label` is escalated to EMERGENCY** so the Routing Agent dispatches. `None` (not assessed) never triggers it. (Before Oct 2026 the override only changed the attached `EmergencyResult`, not the label, so an adult with a confirmed danger sign and a MODERATE disease was never routed.)
 
-**Measured behaviour (1,000-case run, Oct 2026):** on the 801 CONFIDENT cases the AHP band agrees with the disease-tier band 62.3 % of the time. It never scores *below* the disease tier, but it scores one band *above* it for 253/323 MODERATE+MILD diseases and 49/309 SEVERE diseases. The AHP band is therefore informational at the moment; the triage decision is the `label`. Cutoffs need calibrating before the band is shown to a CHW as a decision.
+**Measured behaviour (1,000-case run):** on the CONFIDENT cases the AHP band agrees with the disease-tier band ~62 % of the time; it never scores *below* the disease tier, but scores one band *above* it for most MODERATE+MILD diseases. **Defined role (Stage 4):** AHP is a within-tier **prioritizer**, not a second label. The triage decision is the `label` (disease tier / worst-case / danger-sign override); AHP's 1–10 score and ESI level order patients *within* a tier for dispatch and populate the ESI field a facility uses — it is explicitly NOT read as the triage label. (Onset acuity, one of its inputs, was also fixed in Stage 4 — a substring bug had scored "three days"/"chronic" as acute.)
 
 ### 5.3 Output Schema
 
@@ -331,19 +331,21 @@ flowchart TD
 | Property | Value |
 |---|---|
 | Method | Isotonic regression (Niculescu-Mizil & Caruana, ICML 2005) |
-| Fitted on | 20% holdout from `disease_symptoms.csv` |
-| Purpose | Converts raw NB log-posteriors to calibrated probabilities for CP |
+| Fitted on | Out-of-fold predictions from stratified 5-fold CV over the 304 unique (disease, symptom-set) profiles (NOT a 20% row-split — 94% of rows are exact duplicates, which leak across a row split) |
+| Purpose | Reports a calibrated top-1 confidence (`calibrated_top_confidence`) and the ECE/Brier below. **Stage 3: it no longer feeds the conformal gate** — fitting it on top-1 correctness but applying it per class collapsed calibrated scores to {0, 1} (the q̂ = 1.0 / degenerate-posterior bug). |
+| Quality | ECE ≈ 0.0, Brier ≈ 0.009 on out-of-fold top-1 (reported via `clf.ece_` / `clf.brier_`). Best calibrator here empirically (ECE 0.019 vs raw 0.109 vs Platt 0.463). |
 | Constraint | Monotone non-decreasing — preserves ranking while correcting scale |
 
 ### 8.3 Split Conformal Prediction
 
 | Property | Value |
 |---|---|
-| Method | Split CP (Vovk 2005; Angelopoulos & Bates 2021) |
-| Nonconformity score | `s(d) = 1 − P̂_calibrated(d | symptoms)` |
-| α | 0.05 (5% miscoverage budget) |
-| Coverage guarantee | ≥ 95% (true disease in prediction set) under exchangeability |
-| Calibration set | Same 20% holdout as isotonic calibration |
+| Method | Split CP / LAC (Vovk 2005; Angelopoulos & Bates 2021) |
+| Nonconformity score | `s(d) = 1 − score(d)`, where `score(d)` is the NB softmax renormalized over ≥1% survivors then F1 emergency-boosted — the same quantity at calibration and inference (Stage 3; was `1 − isotonic(d)`, which collapsed). |
+| α | `DEFAULT_CP_ALPHA` = 0.10 → q̂ ≈ 0.022 (non-vacuous) |
+| Coverage guarantee | ≥ 90% nominal (empirical held-out ≈ 99%) under exchangeability |
+| Calibration set | 304 out-of-fold nonconformity scores from the same stratified 5-fold CV |
+| Empty LAC set | Flat posterior (nothing clears the bar) → the whole plausible differential (honest wide ABSTAIN), not a forced-confident top-1 |
 | Routing | set\_size=1 → CONFIDENT; 2–3 → UNCERTAIN; ≥4 → ABSTAIN |
 
 ### 8.4 AHP Emergency Scorer
@@ -351,11 +353,13 @@ flowchart TD
 | Property | Value |
 |---|---|
 | Method | Analytic Hierarchy Process (Saaty 1980) |
-| Attributes | 6 (symptom severity, onset speed, vital signs, age vulnerability, comorbidities, duration) |
-| Consistency Ratio | CR = 0.0205 (threshold < 0.10 per Saaty) |
-| Highest weight | Symptom severity: w = 0.412 |
-| Output | Score 0–10, ESI band, override flag |
-| Band mapping | Score ≥ 8 → EMERGENCY · 5–7 → URGENT · 0–4 → NON-URGENT |
+| Attributes | 6 (complication probability, time-to-treatment, disease-severity tier, age vulnerability, onset acuity, transmissibility) — the attributes `score_emergency()` actually computes (see §5.1; NOT "symptom severity / vital signs / comorbidities / duration") |
+| Weights | 0.3825 / 0.2504 / 0.1596 / 0.1006 / 0.0641 / 0.0428 — DERIVED at import from `_AHP_PAIRWISE` (principal eigenvector, sums to exactly 1.0), not transcribed |
+| Consistency Ratio | CR = 0.0198 computed at import (λ_max 6.1225, CI 0.0245); CR ≥ 0.10 raises |
+| Highest weight | Complication probability: w = 0.3825 |
+| Output | Score 1–10 (= round(acuity×9)+1), ESI level 1–5, band, override flag |
+| Band mapping | 8–10 → EMERGENCY · 4–7 → URGENT · 1–3 → NON-URGENT |
+| Role (Stage 4) | A within-tier **prioritizer**, not a label-setter: the triage label is the disease severity tier / worst-case / danger-sign override; AHP's score+ESI order patients WITHIN a tier for dispatch. The danger-sign override forces score 10 / ESI-1. |
 
 ### 8.5 Follow-up Question Generation (Groq LLM)
 
@@ -431,7 +435,7 @@ The 19 baseline false negatives were all Heart attack cases misclassified as Tub
 
 ### 9.3 CP Formal Coverage (Exchangeability Check)
 
-In both the 100-case and 1000-case runs, the true disease appeared in the CP prediction set for **100% of cases** (exceeds the 95% formal guarantee under in-distribution conditions).
+In the in-sample runs the true disease appeared in the CP prediction set for **100% of cases**, and in the OUT-OF-SAMPLE short-message harness (`tests/evaluate_oos.py`) for 100% as well — both exceed the ≥ 90 % (α = 0.10) nominal guarantee under in-distribution conditions. (In-sample coverage is a wiring check; the OOS figure is the one to cite.)
 
 ---
 
@@ -537,7 +541,7 @@ For the 1,000-case run, the 334 EMERGENCY test cases were sampled with replaceme
 All evaluations bypass Agent 1 by feeding clean CSV tokens directly to the classifier. In production, NLP extraction errors (dropped tokens, mistranslation, hallucinated signs) compound directly into CP accuracy. No end-to-end NLP error rate has been measured.
 
 ### L5 — CP Exchangeability Assumption
-The ≥ 95% coverage guarantee holds only if the deployment symptom distribution is exchangeable with the calibration distribution (both from the same CSV). This assumption breaks under real-world distribution shift.
+The ≥ 1 − α (90% at α = 0.10) coverage guarantee holds only if the deployment symptom distribution is exchangeable with the calibration distribution (both from the same CSV). This assumption breaks under real-world distribution shift.
 
 ### L6 — Positive-Evidence-Only Follow-up
 When a CHW answers "No" to a follow-up question, that answer is not used to penalise the corresponding disease. The classifier only sees positive symptom tokens. This makes the follow-up loop less efficient — it may need more turns than theoretically necessary.
@@ -545,8 +549,8 @@ When a CHW answers "No" to a follow-up question, that answer is not used to pena
 ### L7 — Duplicate Follow-up Logic
 The Streamlit UI (`_start_adaptive` / `_answer_adaptive`) and the programmatic API (`classify_with_adaptive_followup`) are separate implementations of the adaptive loop. If one is patched, the other does not automatically follow. (Both received the same two fixes in Oct 2026; the duplication itself remains.)
 
-### L8 — Isotonic Calibrator Applied Outside Its Fitted Range
-The isotonic regressor is fitted on (top-1 raw posterior → P(top-1 is correct)). `classify_with_cp()` applies it to every disease's posterior, not only the top one. Monotonicity preserves the ranking, so the prediction set is still well-ordered, but the "calibrated posterior" reported for non-top diseases is not a calibrated probability of that disease.
+### L8 — Isotonic Calibrator Applied Outside Its Fitted Range (RESOLVED, Stage 3)
+Previously the isotonic regressor (fitted on top-1 raw posterior → P(top-1 correct)) was applied to every disease's posterior inside `classify_with_cp()`, which collapsed the calibrated per-class scores to {0, 1} and drove the q̂ = 1.0 / degenerate-posterior bug. Stage 3 removed isotonic from the gate entirely: the conformal set now scores on the NB posterior directly, and isotonic is used only for the reported top-1 confidence + ECE/Brier (a use within its fitted domain).
 
 ### L9 — Pediatric Danger Signs Used as the Adult Override
 `score_emergency()` applies the four WHO IMCI general danger signs (a 2–59 month construct) as the adult hard override. Convulsions and lethargy/unconsciousness are defensible red flags at any age; "vomits everything" and "not able to drink or breastfeed" are pediatric criteria and have not been validated as adult emergency triggers.

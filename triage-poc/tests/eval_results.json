@@ -93,11 +93,10 @@
       "true_sev": "EMERGENCY",
       "pred_disease": "Heart attack",
       "pred_sev": "EMERGENCY",
-      "decision": "UNCERTAIN",
-      "set_size": 2,
+      "decision": "CONFIDENT",
+      "set_size": 1,
       "prediction_set": [
-        "Heart attack",
-        "Tuberculosis"
+        "Heart attack"
       ]
     },
     {
@@ -193,11 +192,10 @@
       "true_sev": "EMERGENCY",
       "pred_disease": "Heart attack",
       "pred_sev": "EMERGENCY",
-      "decision": "UNCERTAIN",
-      "set_size": 2,
+      "decision": "CONFIDENT",
+      "set_size": 1,
       "prediction_set": [
-        "Heart attack",
-        "Tuberculosis"
+        "Heart attack"
       ]
     },
     {
@@ -691,11 +689,10 @@
       "true_sev": "MILD",
       "pred_disease": "Fungal infection",
       "pred_sev": "MILD",
-      "decision": "UNCERTAIN",
-      "set_size": 2,
+      "decision": "CONFIDENT",
+      "set_size": 1,
       "prediction_set": [
-        "Fungal infection",
-        "Chicken pox"
+        "Fungal infection"
       ]
     },
     {
@@ -1135,9 +1132,9 @@
   "correct_disease": 98,
   "in_pred_set": 100,
   "abstained": 0,
-  "uncertain": 5,
-  "confident_correct": 95,
-  "confident_total": 95,
+  "uncertain": 2,
+  "confident_correct": 98,
+  "confident_total": 98,
   "binary": {
     "TP": 4,
     "FP": 0,

@@ -165,7 +165,7 @@ def run_evaluation() -> dict:
 # ---------------------------------------------------------------------------
 # Print report
 # ---------------------------------------------------------------------------
-def print_report(ev: dict) -> None:
+def print_report(ev: dict, out_dir: Path) -> None:
     n = len(ev["cases"])
     cm = ev["cm"]
     b = ev["binary"]
@@ -214,13 +214,16 @@ def print_report(ev: dict) -> None:
     print("=" * 70)
 
     # Save full log
-    out_path = Path(__file__).parent / "eval_results.json"
+    out_path = out_dir / "eval_results.json"
     with open(out_path, "w") as f:
         json.dump({k: v for k, v in ev.items() if k != "cases"}, f, indent=2)
     print(f"\nFull results saved to: {out_path}")
 
 
 if __name__ == "__main__":
+    from tests.eval_output import resolve_out_dir
+
+    out_dir = resolve_out_dir("stratified 100-case classifier evaluation")
     print("Running 100-case evaluation...")
     ev = run_evaluation()
-    print_report(ev)
+    print_report(ev, out_dir)

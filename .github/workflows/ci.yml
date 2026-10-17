@@ -1,0 +1,49 @@
+name: CI
+
+# Runs the triage-poc test suite on every push and pull request.
+#
+# Ollama-gated tests (the ones that hit a local llama3.2:3b at
+# localhost:11434) skip themselves automatically in CI: their
+# pytest.mark.skipif calls tests/test_integration_agent1_pipeline.py::
+# _ollama_available(), which returns False when no Ollama server is
+# reachable. No Ollama is installed here, so those tests are skipped,
+# not failed. The FAISS/sentence-transformers tests DO run — they
+# download the multilingual MiniLM model on first run (cached below).
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: triage-poc
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: triage-poc/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Cache HuggingFace model (paraphrase-multilingual-MiniLM-L12-v2)
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-paraphrase-multilingual-minilm-l12-v2
+
+      - name: Run tests
+        env:
+          PYTHONIOENCODING: utf-8
+        # Ollama-gated tests skip automatically (no server reachable in CI).
+        run: python -m pytest tests -q -p no:cacheprovider
