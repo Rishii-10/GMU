@@ -52,6 +52,10 @@ from app.routing.demo_facilities import VILLAGES, build_demo_facility_db
 from app.routing.report import generate_doctor_report
 from app.routing.router import route, urgency_for_label
 from app.routing.schemas import DispatchResult
+from app.surveillance.agent import SurveillanceAgent
+from app.surveillance.analytics import weekly_trend
+from app.surveillance.demo_stream import generate_demo_stream
+from app.surveillance.ingest import from_case_store
 from app.schemas import ClassificationLabel, ClassificationResult, ExtractedCase
 
 
@@ -1420,12 +1424,92 @@ if st.session_state.current is not None:
     backend = OllamaBackend()
     ensure_dispatch_and_report(st.session_state.current, backend)
 
+def render_surveillance_view() -> None:
+    """Agent 2 — the public-health official's outbreak-surveillance view. Reads
+    the SAME case stream the triage pipeline records (the framework's
+    extensibility in action) and autonomously surfaces only areas that are out
+    of hand, with an LLM situational brief and a recommended action."""
+    st.markdown("### 🏛️ Agent 2 — Outbreak surveillance (government / public-health official)")
+    st.caption(
+        "Watches the region-wide stream of triaged cases, flags unusual disease "
+        "clusters by village with simple statistics, and **alerts the official only "
+        "when something is out of hand** — with an AI situational brief and a "
+        "recommended public-health action. Agent 2 consumes the same case record "
+        "the triage pipeline already writes, so it plugs in without touching the "
+        "triage core."
+    )
+
+    col_a, col_b = st.columns([2, 2])
+    source = col_a.radio("Data source", ["Demonstration stream", "Live case log"],
+                         horizontal=True, key="surv_source")
+    use_llm = col_b.checkbox("AI situational brief (uses the local LLM on alerts)",
+                             value=False, key="surv_llm")
+
+    if st.button("Run surveillance", key="surv_run") or "surveillance_report" not in st.session_state:
+        with st.spinner("Analysing the case stream…"):
+            if source.startswith("Demonstration"):
+                cases, is_demo = generate_demo_stream(weeks=8), True
+            else:
+                cases, is_demo = from_case_store(_get_case_store()), False
+            backend = OllamaBackend() if use_llm else None
+            rep = SurveillanceAgent(backend=backend).run(cases, is_demonstration=is_demo)
+            st.session_state["surveillance_report"] = rep
+            st.session_state["surveillance_trend"] = weekly_trend(cases, rep.generated_at) if cases else {}
+
+    rep = st.session_state.get("surveillance_report")
+    if rep is None or rep.n_cases == 0:
+        st.info("No cases to analyse yet. Record some cases via Assess, or switch to "
+                "the demonstration stream above.")
+        return
+
+    if rep.is_demonstration:
+        st.warning("⚠️ Demonstration data — a synthetic multi-village stream with one "
+                   "injected outbreak, to show the agent's behaviour. Not real surveillance.")
+
+    st.caption(" · ".join(rep.notes))
+
+    if rep.alerts:
+        st.markdown("#### 🚨 Active alerts")
+        for a in rep.alerts:
+            with st.container(border=True):
+                st.markdown(f"**{a.level.value} — {a.area}: {a.disease}**")
+                s = a.signal
+                m1, m2, m3 = st.columns(3)
+                m1.metric("Cases this week", s.observed)
+                m2.metric("Recent baseline", f"{s.baseline_mean:g}")
+                m3.metric("Most affected", s.dominant_age_band or "all ages")
+                st.markdown(f"**Situational brief:** {a.brief}")
+                st.markdown(f"**Recommended action:** {a.recommended_action}")
+    else:
+        st.success("No area is out of hand this period — nothing surfaced.")
+
+    st.markdown("#### Village risk table")
+    st.dataframe(
+        [{
+            "village": v.area, "total cases": v.total_cases,
+            "severe/emergency": v.severe_or_emergency,
+            "this week": v.cases_current_window, "prev week": v.cases_prev_window,
+            "top disease": v.top_disease, "risk score": v.risk_score,
+        } for v in rep.village_table],
+        hide_index=True, use_container_width=True,
+    )
+
+    trend = st.session_state.get("surveillance_trend") or {}
+    trend = {area: series for area, series in trend.items() if any(series)}
+    if trend:
+        st.markdown("#### Weekly case trend by village")
+        st.line_chart(trend)
+
+    if rep.watchlist:
+        st.caption(f"**Watchlist (areas under active watch):** {', '.join(rep.watchlist)}")
+
+
 st.markdown("---")
-# The four role views need a case; the Results page does not, so the tab strip
-# is always rendered and "📊 Results" is reachable without running a triage.
-tab_caller, tab_asha, tab_doctor, tab_engine, tab_results = st.tabs(
+# The four role views need a case; the Results and Surveillance pages do not, so
+# the tab strip is always rendered and reachable without running a triage.
+tab_caller, tab_asha, tab_doctor, tab_engine, tab_results, tab_official = st.tabs(
     ["📞 Caller / Caregiver", "🏥 ASHA Worker", "🩺 Doctor",
-     "🔬 Rule Engine Output", "📊 Results"]
+     "🔬 Rule Engine Output", "📊 Results", "🏛️ Official / Surveillance"]
 )
 
 _cur = st.session_state.current
@@ -1441,3 +1525,5 @@ with tab_engine:
     render_rule_engine_view(_cur) if _cur else st.info(_NO_CASE)
 with tab_results:
     render_results_view()
+with tab_official:
+    render_surveillance_view()

@@ -1,0 +1,17 @@
+{
+  "call_model": {
+    "extraction (Agent 1)": "1 (always)",
+    "follow-up phrasing (Flow C)": "0-3 (only when the case is uncertain)",
+    "doctor report (Agent 3)": "0-1 (only EMERGENCY/SEVERE with a village)",
+    "surveillance brief (Agent 2)": "event-driven (only when an alert fires, not per case)",
+    "typical MILD case": "1 LLM call",
+    "typical EMERGENCY case": "2 LLM calls (extraction + report)"
+  },
+  "latency_ms_per_call": {
+    "classify (deterministic)": 55.3,
+    "routing (deterministic)": 0.06,
+    "surveillance run (deterministic)": 0.23,
+    "extraction LLM (Ollama)": 3793.78
+  },
+  "note": "Latency is machine-dependent; compare stages, not absolutes."
+}
