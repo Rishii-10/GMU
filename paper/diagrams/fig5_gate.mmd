@@ -1,0 +1,13 @@
+%% F6 - The decision module (horizontal)
+flowchart LR
+  R([case record]):::ext --> NB["Rank plausible<br/>conditions"]:::core
+  NB --> SET["Keep those above a<br/>calibrated threshold"]:::core
+  SET --> SZ{"how many<br/>remain?"}:::core
+  SZ -- one --> C["Commit:<br/>its urgency level"]:::proc
+  SZ -- few --> U["Uncertain:<br/>worst-case level, then ask"]:::alert
+  SZ -- many --> AB["Defer:<br/>worst-case, or to a human"]:::alert
+
+  classDef ext fill:#EEF0F3,stroke:#8A9099,color:#2F343A;
+  classDef core fill:#E6F0E9,stroke:#3C8A5A,color:#17402A;
+  classDef proc fill:#E7EEF7,stroke:#3B6098,color:#16314F;
+  classDef alert fill:#F8E8E7,stroke:#B4453F,color:#5A1A17;
