@@ -22,7 +22,7 @@
     "paraphrase_agreement": 0.75,
     "reply_not_understood_rate": 0.0,
     "hedge_coercion_rate": 0.0,
-    "code_mixed_lay_token_recall": 0.962,
+    "code_mixed_lay_token_recall": 0.9536,
     "code_mixed_lay_under_triage": 0.0
   },
   "C_caller_effort": {

@@ -89,9 +89,22 @@ class OutbreakSignal(BaseModel):
     detector: str = "baseline_deviation"
 
 
+class ToolCall(BaseModel):
+    """One tool the agent invoked while acting on an alert -- the audit record
+    of what it actually DID (app.surveillance.tools)."""
+
+    tool: str
+    arguments: dict = Field(default_factory=dict)
+    ok: bool = True
+    summary: str = ""
+    output: dict = Field(default_factory=dict)
+    at: datetime
+
+
 class Alert(BaseModel):
     """What actually reaches the official: a signal the policy judged worth
-    surfacing, with an autonomously generated brief + recommended action."""
+    surfacing, with an autonomously generated brief + recommended action, and
+    the tool calls the agent made in response (`actions`)."""
 
     level: AlertLevel
     area: str
@@ -100,6 +113,9 @@ class Alert(BaseModel):
     recommended_action: str
     brief: str
     created_at: datetime
+    actions: list[ToolCall] = Field(default_factory=list)
+    notified: bool = False
+    notify_decision: str = ""
 
 
 class SurveillanceReport(BaseModel):
@@ -114,3 +130,4 @@ class SurveillanceReport(BaseModel):
     watchlist: list[str] = Field(default_factory=list)
     notes: list[str] = Field(default_factory=list)
     is_demonstration: bool = False
+    tool_log: list[ToolCall] = Field(default_factory=list)

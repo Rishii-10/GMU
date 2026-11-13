@@ -35,7 +35,9 @@ CREATE TABLE IF NOT EXISTS facilities (
     open_time TEXT,
     close_time TEXT,
     open_days TEXT,
-    phone TEXT
+    phone TEXT,
+    services TEXT,
+    timezone TEXT
 );
 CREATE TABLE IF NOT EXISTS villages (
     name TEXT PRIMARY KEY,
@@ -75,6 +77,8 @@ def _facility_to_row(f: Facility) -> tuple:
         f.close_time,
         open_days,
         f.phone,
+        ",".join(f.services),
+        f.timezone,
     )
 
 
@@ -82,7 +86,7 @@ def _row_to_facility(row: tuple) -> Facility:
     (
         facility_id, name, facility_type, lat, lon,
         has_emergency_care, has_doctor_24hr, has_blood_bank, is_24hr,
-        open_time, close_time, open_days, phone,
+        open_time, close_time, open_days, phone, services, tz,
     ) = row
     return Facility(
         facility_id=facility_id,
@@ -98,6 +102,8 @@ def _row_to_facility(row: tuple) -> Facility:
         close_time=close_time,
         open_days=[int(d) for d in open_days.split(",")] if open_days else None,
         phone=phone,
+        services=services.split(",") if services else [],
+        timezone=tz or "Asia/Kolkata",
     )
 
 
@@ -116,13 +122,17 @@ class FacilityDB:
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(self.db_path)
         self._conn.executescript(_SCHEMA)
+        existing = {row[1] for row in self._conn.execute("PRAGMA table_info(facilities)")}
+        for name in ("services", "timezone"):  # additive migration for older DB files
+            if name not in existing:
+                self._conn.execute(f"ALTER TABLE facilities ADD COLUMN {name} TEXT")
         self._conn.commit()
 
     def add_facility(self, facility: Facility) -> int:
         cursor = self._conn.execute(
             "INSERT INTO facilities (name, facility_type, lat, lon, has_emergency_care, "
-            "has_doctor_24hr, has_blood_bank, is_24hr, open_time, close_time, open_days, phone) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "has_doctor_24hr, has_blood_bank, is_24hr, open_time, close_time, open_days, phone, "
+            "services, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             _facility_to_row(facility),
         )
         self._conn.commit()
@@ -150,8 +160,8 @@ class FacilityDB:
     def all_facilities(self) -> list[Facility]:
         rows = self._conn.execute(
             "SELECT facility_id, name, facility_type, lat, lon, has_emergency_care, "
-            "has_doctor_24hr, has_blood_bank, is_24hr, open_time, close_time, open_days, phone "
-            "FROM facilities"
+            "has_doctor_24hr, has_blood_bank, is_24hr, open_time, close_time, open_days, phone, "
+            "services, timezone FROM facilities"
         ).fetchall()
         return [_row_to_facility(r) for r in rows]
 

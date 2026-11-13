@@ -54,11 +54,13 @@ from __future__ import annotations
 import json
 import random
 import sys
+import tempfile
 from collections import Counter
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import app.disease_classifier as dc
 from app.disease_classifier import (
     DEFAULT_CP_ALPHA,
     _fit_naive_bayes,
@@ -77,6 +79,8 @@ from tests.evaluate_oos import (
     _truncate,
     _unique_profiles,
 )
+from tests.evaluate_followup_production import _run_case as _run_followup_case
+from tests.evaluate_followup_production import fold_classifier
 
 _SEED = 42
 _N_FOLDS = 5
@@ -173,6 +177,11 @@ def _run_mode(mode: str, limit: int | None = None) -> dict:
                 train[d] = kept
         lp, ll = _fit_naive_bayes(train, vocab)
         fold_clf = _FoldModel(full, lp, ll, emergency_names, alpha=DEFAULT_CP_ALPHA)
+        # Shipped-path classifier for the WITH-FOLLOW-UP score (own NB + own
+        # conformal calibration on this fold), installed as the default so the
+        # real rules_engine / follow-up functions use it.
+        tmp = tempfile.TemporaryDirectory()
+        dc._default_classifier = fold_classifier(kb, train, Path(tmp.name))
 
         for true_d, profile in held:
             if limit is not None and attempted >= limit:
@@ -193,6 +202,7 @@ def _run_mode(mode: str, limit: int | None = None) -> dict:
             except (ExtractionValidationError, ValueError, KeyError):
                 extraction_failures += 1
                 extracted = []
+                case = None
 
             true_rank = SEVERITY_RANK[severity_for_disease(true_d, kb)]
             oracle = _score_variant(fold_clf, short, kb, **flags)
@@ -204,8 +214,25 @@ def _run_mode(mode: str, limit: int | None = None) -> dict:
                       "prediction_set": [], "top": None, "lac_empty_fallback": False}
             )
 
+            # WITH FOLLOW-UP: the extracted case (age forced adult so it stays on
+            # the dataset path, like the rendered message) through the shipped
+            # loop, answered by the same ground-truth oracle as
+            # evaluate_followup_production. A failed extraction has no case and
+            # keeps its no-follow-up result.
+            if case is not None and extracted:
+                fu_case = case.model_copy(update={"age_group": "adult", "age_months": None,
+                                                  "symptom_tokens": extracted})
+                fu = _run_followup_case(true_d, short, set(profile), kb, case=fu_case)
+                fu_rank, fu_resolved, fu_started = fu["final_rank"], fu["resolved"], fu["started_uncertain"]
+            else:
+                fu_rank = SEVERITY_RANK.get(ClassificationLabel(e2e["label"]), 99)
+                fu_resolved, fu_started = False, False
+
             want, got = set(short), set(extracted)
             records.append({
+                "e2e_followup_label_rank": fu_rank,
+                "e2e_followup_started_uncertain": fu_started,
+                "e2e_followup_resolved": fu_resolved,
                 "true_rank": true_rank,
                 "oracle_label_rank": SEVERITY_RANK.get(ClassificationLabel(oracle["label"]), 99),
                 "e2e_label_rank": SEVERITY_RANK.get(ClassificationLabel(e2e["label"]), 99),
@@ -218,9 +245,11 @@ def _run_mode(mode: str, limit: int | None = None) -> dict:
                 "exact_token_match": want == got,
                 "e2e_decision": e2e["decision"],
             })
+        tmp.cleanup()
         if limit is not None and attempted >= limit:
             break
 
+    dc._default_classifier = None  # drop the last fold model; next use rebuilds production
     return _summarize(records, extraction_failures, attempted, mode, skipped_no_phrasing)
 
 
@@ -289,6 +318,15 @@ def _summarize(records: list[dict], extraction_failures: int, attempted: int,
         # --- the same cases scored on ground-truth tokens ---
         "oracle_under_triage": oracle_under,
         "oracle_over_triage": oracle_over,
+
+        # --- the composed system WITH active follow-up (shipped step functions,
+        # per-fold out-of-sample classifier, ground-truth simulated answers) ---
+        "end_to_end_with_followup_under_triage": _rate(under(emg, "e2e_followup_label_rank"), len(emg)),
+        "end_to_end_with_followup_over_triage": _rate(over(mild, "e2e_followup_label_rank"), len(mild)),
+        "end_to_end_followup_resolution_of_uncertain": _rate(
+            sum(1 for r in records if r["e2e_followup_started_uncertain"] and r["e2e_followup_resolved"]),
+            sum(1 for r in records if r["e2e_followup_started_uncertain"]),
+        ),
 
         # --- the delta: what the NLP front end costs ---
         "under_triage_cost_of_extraction": round(e2e_under - oracle_under, 4),

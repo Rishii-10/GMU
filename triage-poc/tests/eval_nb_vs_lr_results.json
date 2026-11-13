@@ -1,0 +1,132 @@
+{
+  "regime": "out-of-sample (leave-profiles-out 5-fold) + short message (2-4 tokens); same test tokens as tests/evaluate_oos.py",
+  "n_test_cases": 304,
+  "lr_note": "C is selected on the test folds -- an optimistic upper bound for LR",
+  "models": {
+    "naive_bayes": {
+      "n": 304,
+      "top1_accuracy": 0.8125,
+      "top3_accuracy": 0.9638,
+      "ece": 0.031,
+      "brier": 0.202,
+      "nll": 0.4069,
+      "mean_top1_confidence": 0.8272,
+      "overconfidence": 0.0147
+    },
+    "logreg_full_C=0.01": {
+      "n": 304,
+      "top1_accuracy": 0.6086,
+      "top3_accuracy": 0.7171,
+      "ece": 0.5091,
+      "brier": 0.8588,
+      "nll": 2.6863,
+      "mean_top1_confidence": 0.0995,
+      "overconfidence": -0.5091
+    },
+    "logreg_full_C=0.1": {
+      "n": 304,
+      "top1_accuracy": 0.7072,
+      "top3_accuracy": 0.8125,
+      "ece": 0.4449,
+      "brier": 0.6497,
+      "nll": 1.9151,
+      "mean_top1_confidence": 0.2624,
+      "overconfidence": -0.4449
+    },
+    "logreg_full_C=1": {
+      "n": 304,
+      "top1_accuracy": 0.7368,
+      "top3_accuracy": 0.8553,
+      "ece": 0.3193,
+      "brier": 0.5155,
+      "nll": 1.4738,
+      "mean_top1_confidence": 0.4175,
+      "overconfidence": -0.3193
+    },
+    "logreg_full_C=10": {
+      "n": 304,
+      "top1_accuracy": 0.7763,
+      "top3_accuracy": 0.8947,
+      "ece": 0.1965,
+      "brier": 0.3812,
+      "nll": 1.0182,
+      "mean_top1_confidence": 0.5809,
+      "overconfidence": -0.1954
+    },
+    "logreg_full_C=100": {
+      "n": 304,
+      "top1_accuracy": 0.7796,
+      "top3_accuracy": 0.8947,
+      "ece": 0.1323,
+      "brier": 0.3419,
+      "nll": 0.891,
+      "mean_top1_confidence": 0.6473,
+      "overconfidence": -0.1323
+    },
+    "logreg_short_C=0.01": {
+      "n": 304,
+      "top1_accuracy": 0.7664,
+      "top3_accuracy": 0.8553,
+      "ece": 0.5678,
+      "brier": 0.7048,
+      "nll": 2.0053,
+      "mean_top1_confidence": 0.1986,
+      "overconfidence": -0.5678
+    },
+    "logreg_short_C=0.1": {
+      "n": 304,
+      "top1_accuracy": 0.8849,
+      "top3_accuracy": 0.9803,
+      "ece": 0.2494,
+      "brier": 0.2592,
+      "nll": 0.65,
+      "mean_top1_confidence": 0.6355,
+      "overconfidence": -0.2494
+    },
+    "logreg_short_C=1": {
+      "n": 304,
+      "top1_accuracy": 0.9046,
+      "top3_accuracy": 0.9836,
+      "ece": 0.0637,
+      "brier": 0.1427,
+      "nll": 0.3064,
+      "mean_top1_confidence": 0.8422,
+      "overconfidence": -0.0624
+    },
+    "logreg_short_C=10": {
+      "n": 304,
+      "top1_accuracy": 0.9046,
+      "top3_accuracy": 0.9836,
+      "ece": 0.0196,
+      "brier": 0.1283,
+      "nll": 0.2415,
+      "mean_top1_confidence": 0.8978,
+      "overconfidence": -0.0068
+    },
+    "logreg_short_C=100": {
+      "n": 304,
+      "top1_accuracy": 0.9079,
+      "top3_accuracy": 0.9803,
+      "ece": 0.0311,
+      "brier": 0.1266,
+      "nll": 0.2306,
+      "mean_top1_confidence": 0.91,
+      "overconfidence": 0.0021
+    }
+  },
+  "nb_vs_lr_trained_on_full_rows": {
+    "best_by_test_accuracy": "logreg_full_C=100",
+    "nb_more_accurate": true,
+    "nb_lower_ece": true,
+    "nb_lower_brier": true,
+    "lr_direction_of_miscalibration": "underconfident"
+  },
+  "nb_vs_lr_trained_on_short_subsets": {
+    "best_by_test_accuracy": "logreg_short_C=100",
+    "nb_more_accurate": false,
+    "nb_lower_ece": true,
+    "nb_lower_brier": false,
+    "lr_direction_of_miscalibration": "calibrated"
+  },
+  "finding": "NB beats LR trained on full rows on accuracy, ECE and Brier (that LR is UNDER-confident, not overconfident). LR trained on short-subset augmented rows beats NB on accuracy at every C >= 0.1, on Brier at C >= 1, and matches or beats its ECE at C >= 10. The claim 'NB is more accurate and better calibrated than LR on short messages' holds only against LR trained on full rows."
+}

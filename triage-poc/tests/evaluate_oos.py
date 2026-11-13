@@ -95,6 +95,10 @@ _VARIANTS: dict[str, dict[str, bool]] = {
     "ablation_no_worstcase":       {"boost": True,  "use_cp": True,  "worst_case": False},
     "ablation_no_emergency_boost": {"boost": False, "use_cp": True,  "worst_case": True},
     "baseline_flat_nb_top1":       {"boost": False, "use_cp": False, "worst_case": False},
+    # Conformal set alone (no boost, no worst-case): isolates the abstain gate as
+    # the ONLY change from the baseline, so the composed build-up adds one
+    # element per row (the old C2 row also switched the emergency boost on).
+    "ablation_cp_only":            {"boost": False, "use_cp": True,  "worst_case": False},
 }
 
 

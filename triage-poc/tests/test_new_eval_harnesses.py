@@ -16,7 +16,13 @@ from tests.evaluate_impact import run_impact_evaluation
 def test_composed_ablation_tells_the_journey():
     ev = run_composed_evaluation()
     stages = {s["stage"]: s for s in ev["stages"]}
-    assert set(stages) == {"C0", "C1", "C2", "C3", "C4"}
+    assert set(stages) == {"C0", "C1", "C2a", "C2", "C3", "C4", "C5"}
+    # One element per row: the conformal set ALONE (C2a) does not move either
+    # rate versus the plain classifier; the C1->C2 drop is the emergency boost.
+    assert stages["C2a"]["misses_urgent"] == stages["C1"]["misses_urgent"]
+    assert stages["C2"]["misses_urgent"] < stages["C2a"]["misses_urgent"]
+    # The shipped path (C5, fully out-of-sample) stays within the alpha bound.
+    assert stages["C5"]["misses_urgent"] <= 0.10
     # The worst-case guard (C3 = full system) removes under-triage.
     assert stages["C3"]["misses_urgent"] == 0.0
     # A plain structured baseline (C1) misses more than the full system.

@@ -38,24 +38,27 @@ from app.agent1_extraction import (
     BackendUnavailable,
     ExtractionValidationError,
     OllamaBackend,
+    DEFERRAL_REASONS,
     _apply_disambiguation,
+    apply_followup_reply,
     extract_case,
+    finalize_after_followup,
+    is_danger_sign_token,
     next_followup_question,
-    parse_yes_no,
     question_for_incomplete_result,
-    record_followup_answer,
 )
 from app.case_store import CaseStore
 from app.rules_engine import classify as rules_classify
 from app.integrations.language_gateway import LanguageGateway
 from app.routing.demo_facilities import VILLAGES, build_demo_facility_db
 from app.routing.report import generate_doctor_report
-from app.routing.router import route, urgency_for_label
+from app.routing.router import required_services, route, urgency_for_label
 from app.routing.schemas import DispatchResult
 from app.surveillance.agent import SurveillanceAgent
 from app.surveillance.analytics import weekly_trend
 from app.surveillance.demo_stream import generate_demo_stream
 from app.surveillance.ingest import from_case_store
+from app.surveillance.state import DEFAULT_STATE_PATH, SurveillanceState
 from app.schemas import ClassificationLabel, ClassificationResult, ExtractedCase
 
 
@@ -465,6 +468,17 @@ def render_facility_card(dispatch: DispatchResult, big: bool = False) -> None:
         """,
         unsafe_allow_html=True,
     )
+    if dispatch.unmet_services:
+        st.warning("No reachable facility offers: " + ", ".join(dispatch.unmet_services)
+                   + ". Sent to the fastest facility that can take this urgency.")
+    if not big and dispatch.alternatives:
+        with st.expander("Facilities compared (fastest first)"):
+            if dispatch.required_services:
+                st.caption("Needed for this case: " + ", ".join(dispatch.required_services))
+            st.dataframe(dispatch.alternatives, hide_index=True, use_container_width=True)
+            st.caption(f"Travel times from `{r.provider}`"
+                       + (" — offline estimate (straight-line distance at a fixed speed)."
+                          if r.provider == "mock_haversine" else "."))
 
 
 def render_case_details(case: ExtractedCase) -> None:
@@ -503,8 +517,13 @@ def render_case_details(case: ExtractedCase) -> None:
         st.markdown(f'<div class="field-value">{case.notes}</div>', unsafe_allow_html=True)
 
     if case.symptom_tokens:
-        st.markdown('<div class="field-label">Matched symptom vocabulary</div>', unsafe_allow_html=True)
+        st.markdown('<div class="field-label">Matched symptom vocabulary (reported present)</div>', unsafe_allow_html=True)
         st.markdown(tag_list(case.symptom_tokens), unsafe_allow_html=True)
+    if case.denied_symptoms or case.absent_symptom_tokens:
+        st.markdown('<div class="field-label">Reported absent (explicitly denied)</div>', unsafe_allow_html=True)
+        st.markdown(tag_list(case.absent_symptom_tokens or case.denied_symptoms), unsafe_allow_html=True)
+        st.caption("Denied symptoms count as evidence against a condition. Symptoms never mentioned are "
+                   "left unknown, not assumed absent.")
 
     with st.expander("Raw message as entered"):
         st.write(case.raw_symptom_text)
@@ -969,7 +988,8 @@ def ensure_dispatch_and_report(cur: dict, backend) -> None:
         cur["dispatch_key"] = None
         return
 
-    cache_key = (village_choice, result.label.value, result.condition)
+    cache_key = (village_choice, result.label.value, result.condition,
+                 tuple(required_services(case, result, result.label)))
     if cur.get("dispatch_key") == cache_key:
         return  # already computed for this village/label combo
 
@@ -979,7 +999,9 @@ def ensure_dispatch_and_report(cur: dict, backend) -> None:
         location=village_choice,
         facility_db=facility_db,
         at=datetime.now(timezone.utc),
-        case_id=case.case_id,
+        case_id=cur.get("case_id") or case.case_id,
+        case=case,
+        result=result,
     )
     cur["dispatch"] = dispatch
     cur["dispatch_key"] = cache_key
@@ -1018,9 +1040,14 @@ def render_caller_view(cur: dict) -> None:
         for p in _tb(gw, list(result.candidates[0].precautions)):
             st.markdown(f"- {p}")
 
-    if result.label == ClassificationLabel.INCOMPLETE_ASSESSMENT:
+    if result.deferred:
+        st.info(_t(gw, "Your case has been passed to your health worker, who will contact you. "
+                       "If the patient gets worse, go to the nearest health centre."))
+
+    adp_pending = (st.session_state.adaptive or {}).get("pending_token")
+    if result.label == ClassificationLabel.INCOMPLETE_ASSESSMENT and not adp_pending:
         next_q = question_for_incomplete_result(result)
-        if next_q:
+        if next_q and not result.deferral_reason == "DANGER_SIGNS_UNANSWERED":
             st.markdown(f"#### {_t(gw, 'Please answer this')}")
             st.info(_t(gw, next_q))
             st.caption(_t(gw, "Add the answer to your message above and press Assess again."))
@@ -1045,6 +1072,8 @@ def render_asha_view(cur: dict) -> None:
     result: ClassificationResult = cur["result"]
 
     render_triage_banner(result)
+    if result.deferred:
+        render_deferred_handoff(cur)
     st.markdown(f'<div class="action-card">{ASHA_ACTION[result.label]}</div>', unsafe_allow_html=True)
 
     checklist = exam_only_checklist(case)
@@ -1336,40 +1365,131 @@ def _get_case_store() -> CaseStore:
 
 
 def _ask_next(adp: dict, backend, gw) -> None:
-    """Pick the next follow-up question (if any) and add it to the chat."""
-    nxt = next_followup_question(
-        adp["case"], st.session_state.current["result"], adp["trail"], backend
-    )
+    """Pick the next follow-up question (if any) and add it to the chat. When
+    there is none, the exchange has ended: finalize the result (DEFERRED when
+    unresolved) and write the FINAL decision over the initial one in the case log."""
+    cur = st.session_state.current
+    nxt = next_followup_question(adp["case"], cur["result"], adp["trail"], backend)
+    adp["unclear"] = 0
     if nxt is None:
         adp["pending_token"] = adp["pending_question"] = None
+        cur["result"] = finalize_after_followup(adp["case"], cur["result"], adp["trail"])
+        _log_case(cur, adp["trail"], final=True)
         return
     adp["pending_token"], adp["pending_question"] = nxt
     adp["chat"].append(("bot", _t(gw, nxt[1])))  # translated for the caller
 
 
+def _log_case(cur: dict, trail: list | None = None, final: bool = False) -> None:
+    """Write (or update by case_id) this case in the case log. Logging must
+    never break triage."""
+    try:
+        case = cur["case"]
+        if not case.location and village_choice != "Not specified":
+            case = case.model_copy(update={"location": village_choice})
+        cur["case_id"] = _get_case_store().record(
+            case, cur["result"], trail=trail, case_id=cur.get("case_id"), final=final
+        )
+    except Exception as _e:
+        st.warning(f"Case log unavailable (triage unaffected): {_e}")
+
+
 def _start_adaptive(case, backend, gw) -> None:
     """Begin the follow-up conversation after the first classification."""
-    adp = {"case": case, "trail": [], "pending_token": None, "pending_question": None, "chat": []}
+    adp = {"case": case, "trail": [], "pending_token": None, "pending_question": None,
+           "chat": [], "unclear": 0}
     st.session_state.adaptive = adp
     _ask_next(adp, backend, gw)
 
 
 def _answer_adaptive(text: str, backend) -> None:
     """Handle ONE incoming reply (like one SMS). Only the reply text arrives;
-    the earlier message, answers and state are kept here on our side."""
+    the earlier message, answers and state are kept here on our side. An
+    unclear reply gets the SAME question again; a second unclear reply leaves
+    that question unanswered (no evidence) and the exchange moves on."""
     adp = st.session_state.adaptive
     cur = st.session_state.current
     gw = cur.get("gw")
     adp["chat"].append(("user", text))
-    if parse_yes_no(text) is None:
-        adp["chat"].append(("bot", _t(gw, "Sorry, please reply with yes or no.")))
-        return
-    case = record_followup_answer(
-        adp["case"], adp["trail"], adp["pending_token"], adp["pending_question"], text
+    case, status = apply_followup_reply(
+        adp["case"], adp["trail"], adp["pending_token"], adp["pending_question"], text, adp.get("unclear", 0)
     )
+    if status == "reask":
+        adp["unclear"] = adp.get("unclear", 0) + 1
+        adp["chat"].append(("bot", _t(gw, "Sorry, I did not understand. Please reply yes or no: ")
+                            + _t(gw, adp["pending_question"])))
+        return
+    if status == "unanswered":
+        adp["chat"].append(("bot", _t(gw, "Okay, we will leave that one for your health worker.")))
     adp["case"] = case
     cur.update(case=case, result=rules_classify(case))  # in place: keeps gw/dispatch
     _ask_next(adp, backend, gw)
+
+
+def render_deferred_handoff(cur: dict) -> None:
+    """What the health worker sees for a case the system deferred to them."""
+    result: ClassificationResult = cur["result"]
+    adp = st.session_state.adaptive or {}
+    st.markdown("#### 🧑‍⚕️ Deferred to you — needs your assessment")
+    st.warning(DEFERRAL_REASONS.get(result.deferral_reason or "", "The system could not finish this assessment."))
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown('<div class="field-label">Label carried while you review</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="field-value">{LABEL_DISPLAY[result.label][0]} (never lowered by deferring)</div>',
+                    unsafe_allow_html=True)
+        if result.prediction_set:
+            st.markdown('<div class="field-label">Conditions still possible</div>', unsafe_allow_html=True)
+            st.markdown(tag_list(list(result.prediction_set)), unsafe_allow_html=True)
+        if result.missing_fields:
+            st.markdown('<div class="field-label">Still to check with the caregiver</div>', unsafe_allow_html=True)
+            st.markdown(tag_list([MISSING_FIELD_LABELS.get(f, f) for f in result.missing_fields]),
+                        unsafe_allow_html=True)
+    with c2:
+        trail = adp.get("trail") or []
+        st.markdown('<div class="field-label">Questions already asked</div>', unsafe_allow_html=True)
+        if not trail:
+            st.caption("none")
+        for t in trail:
+            ans = "unanswered" if t.get("unanswered") else t.get("answer")
+            st.markdown(f"- {t['question']} → **{ans}**")
+
+
+def render_health_worker_queue() -> None:
+    """Open cases for the health worker, in priority order (app.prioritization)."""
+    st.markdown("---")
+    st.markdown("### 📋 Health-worker case queue")
+    st.caption("Ordered by urgency level first, then by the AHP priority score within a level, then by "
+               "waiting time. The score never moves a case to another level. Cases the system could not "
+               "assess sit in **NEEDS_REVIEW**, above MODERATE — 'could not tell' is never treated as routine.")
+    try:
+        store = _get_case_store()
+        area = None if village_choice == "Not specified" else village_choice
+        queue = store.health_worker_queue(area=area)
+    except Exception as exc:
+        st.caption(f"Case log unavailable: {exc}")
+        return
+    if not queue:
+        st.caption("No open cases" + (f" for {area}." if area else "."))
+        return
+    rows = [{
+        "tier": r["queue_tier"],
+        "deferred": "⚑ " + (r.get("deferral_reason") or "") if r.get("deferred") else "",
+        "AHP score": r.get("emergency_score"),
+        "ESI": r.get("esi_level"),
+        "area": r["area"],
+        "condition": r.get("probable_disease") or r.get("condition") or "—",
+        "waiting since (UTC)": (r["recorded_at"] or "")[:19].replace("T", " "),
+        "final": "yes" if r.get("is_final") else "in progress",
+        "case_id": r["case_id"][:8],
+    } for r in queue]
+    st.dataframe(rows, hide_index=True, use_container_width=True)
+    ids = {r["case_id"][:8]: r["case_id"] for r in queue}
+    with st.form("mark_reviewed_form", clear_on_submit=True):
+        pick = st.selectbox("Mark a case as taken / reviewed", list(ids))
+        note = st.text_input("Note (optional)")
+        if st.form_submit_button("Mark reviewed"):
+            store.mark_reviewed(ids[pick], note or None)
+            st.rerun()
 
 
 # ---------------------------------------------------------------------------
@@ -1408,16 +1528,10 @@ if assess_clicked:
                 }
             )
             st.session_state.current = {"case": case, "result": result, "gw": gw}
-            # Persist the INITIAL classification to the case log. Recorded
-            # under the chosen village when one is selected, so the
-            # "previous calls from this area" lookup has something to match.
-            try:
-                located = case if case.location else case.model_copy(
-                    update={"location": None if village_choice == "Not specified" else village_choice}
-                )
-                _get_case_store().record(located, result)
-            except Exception as _e:  # logging must never break triage
-                st.warning(f"Case log unavailable (triage unaffected): {_e}")
+            # Persist the INITIAL classification to the case log (under the
+            # chosen village when one is selected). _ask_next() overwrites the
+            # same row with the FINAL decision once follow-up ends.
+            _log_case(st.session_state.current)
             _start_adaptive(case, backend, gw)
 
 if st.session_state.current is not None:
@@ -1440,8 +1554,10 @@ def render_surveillance_view() -> None:
     )
 
     col_a, col_b = st.columns([2, 2])
-    source = col_a.radio("Data source", ["Demonstration stream", "Live case log"],
-                         horizontal=True, key="surv_source")
+    source = col_a.radio("Data source", ["Live case log", "Demonstration stream"],
+                         horizontal=True, key="surv_source",
+                         help="Live = every case this app has triaged (final decision after follow-up). "
+                              "Demonstration = synthetic stream with one injected outbreak.")
     use_llm = col_b.checkbox("AI situational brief (uses the local LLM on alerts)",
                              value=False, key="surv_llm")
 
@@ -1452,7 +1568,7 @@ def render_surveillance_view() -> None:
             else:
                 cases, is_demo = from_case_store(_get_case_store()), False
             backend = OllamaBackend() if use_llm else None
-            rep = SurveillanceAgent(backend=backend).run(cases, is_demonstration=is_demo)
+            rep = _get_surveillance_agent(is_demo, backend).run(cases, is_demonstration=is_demo)
             st.session_state["surveillance_report"] = rep
             st.session_state["surveillance_trend"] = weekly_trend(cases, rep.generated_at) if cases else {}
 
@@ -1480,6 +1596,20 @@ def render_surveillance_view() -> None:
                 m3.metric("Most affected", s.dominant_age_band or "all ages")
                 st.markdown(f"**Situational brief:** {a.brief}")
                 st.markdown(f"**Recommended action:** {a.recommended_action}")
+                st.markdown(f"**Notification:** {'sent' if a.notified else 'not sent'} — {a.notify_decision}")
+                with st.expander(f"Actions the agent took ({len(a.actions)} tool calls)"):
+                    st.dataframe(
+                        [{"tool": c.tool, "ok": "✓" if c.ok else "✗", "result": c.summary} for c in a.actions],
+                        hide_index=True, use_container_width=True,
+                    )
+                    cap = next((c for c in a.actions if c.tool == "check_facility_capacity"), None)
+                    if cap and cap.output.get("facilities"):
+                        st.caption("Facility capacity for " + ", ".join(cap.output["needed_services"]))
+                        st.dataframe(cap.output["facilities"], hide_index=True, use_container_width=True)
+                    note = next((c for c in a.actions if c.tool == "notify_health_workers"), None)
+                    if note:
+                        st.caption("Message sent (offline mock provider — nothing leaves this machine):")
+                        st.code(note.output.get("message", ""), language=None)
     else:
         st.success("No area is out of hand this period — nothing surfaced.")
 
@@ -1502,6 +1632,25 @@ def render_surveillance_view() -> None:
 
     if rep.watchlist:
         st.caption(f"**Watchlist (areas under active watch):** {', '.join(rep.watchlist)}")
+    history = _get_surveillance_agent(rep.is_demonstration).state.alert_history(limit=20)
+    if history:
+        with st.expander(f"Alert history ({'this session' if rep.is_demonstration else 'persistent'})"):
+            st.dataframe(history, hide_index=True, use_container_width=True)
+
+
+def _get_surveillance_agent(is_demo: bool, backend=None) -> SurveillanceAgent:
+    """One agent per data source, kept for the session. The live agent's memory
+    (watchlist, alert history, escalations) is file-backed so it survives
+    restarts; the demonstration agent's memory is in-memory so synthetic alerts
+    never mix into the live record."""
+    key = "surv_agent_demo" if is_demo else "surv_agent_live"
+    agent = st.session_state.get(key)
+    if agent is None:
+        state = SurveillanceState(":memory:" if is_demo else DEFAULT_STATE_PATH)
+        agent = SurveillanceAgent(state=state)
+        st.session_state[key] = agent
+    agent.backend = backend
+    return agent
 
 
 st.markdown("---")
@@ -1519,6 +1668,7 @@ with tab_caller:
     render_caller_view(_cur) if _cur else st.info(_NO_CASE)
 with tab_asha:
     render_asha_view(_cur) if _cur else st.info(_NO_CASE)
+    render_health_worker_queue()
 with tab_doctor:
     render_doctor_view(_cur) if _cur else st.info(_NO_CASE)
 with tab_engine:

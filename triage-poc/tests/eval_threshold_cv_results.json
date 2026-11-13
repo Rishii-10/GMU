@@ -1,0 +1,28 @@
+{
+  "sample": "tests/fixtures/symptom_calibration.py (labelled English/Hindi/Hinglish phrases)",
+  "sample_size": 80,
+  "positives": 72,
+  "negatives": 8,
+  "shipped_threshold": 0.45,
+  "in_sample_best_threshold": 0.45,
+  "in_sample_accuracy": 0.975,
+  "kfold": {
+    "k": 5,
+    "accuracy": 0.9625,
+    "chosen_thresholds": [
+      0.4,
+      0.45,
+      0.45,
+      0.45,
+      0.45
+    ]
+  },
+  "leave_one_out": {
+    "accuracy": 0.9625,
+    "distinct_chosen_thresholds": [
+      0.4,
+      0.45
+    ]
+  },
+  "note": "in_sample_accuracy is the figure previously quoted (threshold chosen and scored on the same items); kfold/leave_one_out choose it on training items only."
+}

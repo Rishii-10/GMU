@@ -44,6 +44,16 @@ class Facility(BaseModel):
         description="0=Monday..6=Sunday. None means open every day (subject to open_time/close_time).",
     )
     phone: Optional[str] = None
+    services: list[str] = Field(
+        default_factory=list,
+        description="Clinical services offered (app.routing.router.SERVICES), e.g. "
+                    "['general', 'paediatrics', 'emergency']. Empty = derived from the "
+                    "capability flags and facility type (router.facility_services).",
+    )
+    timezone: str = Field(
+        default="Asia/Kolkata",
+        description="IANA time zone that open_time/close_time/open_days are expressed in.",
+    )
 
 
 class ScoredFacility(BaseModel):
@@ -90,3 +100,16 @@ class DispatchResult(BaseModel):
     reasoning: list[str] = Field(default_factory=list)
     case_id: Optional[str] = None
     no_facility_found: bool = False
+    required_services: list[str] = Field(
+        default_factory=list, description="Services the case needs (router.required_services)."
+    )
+    unmet_services: list[str] = Field(
+        default_factory=list,
+        description="Required services no reachable eligible facility offers; the case was "
+                    "routed to the fastest facility that meets the urgency filter instead.",
+    )
+    radius_km_used: Optional[float] = None
+    alternatives: list[dict] = Field(
+        default_factory=list,
+        description="Every routed candidate, fastest first: name, eta_minutes, road_distance_km.",
+    )

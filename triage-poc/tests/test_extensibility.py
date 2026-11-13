@@ -25,6 +25,10 @@ _APP = Path(__file__).resolve().parent.parent / "app"
 _ALLOWED = {
     "app.schemas", "app.case_store", "app.disease_classifier", "app.disease_kb",
     "app.agent1_extraction", "app.routing.demo_facilities",
+    # tool seams (2026-11-13): the facility network + service vocabulary for the
+    # capacity tool, and the messaging interface for the notify tool. Neither
+    # imports the triage decision core.
+    "app.routing.facility_db", "app.routing.router", "app.integrations.messaging",
 }
 _FORBIDDEN_CORE = "app.rules_engine"
 

@@ -110,6 +110,33 @@
         "SEVERE": 140,
         "EMERGENCY": 5
       }
+    },
+    "ablation_cp_only": {
+      "n": 304,
+      "under_triage_rate_emergency_severe": 0.0915,
+      "under_triage_count": 13,
+      "emergency_severe_n": 142,
+      "over_triage_rate_mild_moderate": 0.0679,
+      "over_triage_count": 11,
+      "mild_moderate_n": 162,
+      "cp_coverage_true_in_set": 1.0,
+      "decision_counts": {
+        "CONFIDENT": 200,
+        "UNCERTAIN": 55,
+        "ABSTAIN": 49
+      },
+      "coverage_confident_fraction": 0.6579,
+      "selective_risk_on_confident": 0.0,
+      "silent_error_rate": 0.0,
+      "abstain_or_ask_rate": 0.3421,
+      "mean_set_size": 2.1447,
+      "lac_empty_fallback_rate": 0.3421,
+      "label_distribution": {
+        "MILD": 31,
+        "MODERATE": 128,
+        "SEVERE": 140,
+        "EMERGENCY": 5
+      }
     }
   },
   "variant_definitions": {
@@ -131,6 +158,11 @@
     "baseline_flat_nb_top1": {
       "boost": false,
       "use_cp": false,
+      "worst_case": false
+    },
+    "ablation_cp_only": {
+      "boost": false,
+      "use_cp": true,
       "worst_case": false
     }
   }
