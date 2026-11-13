@@ -1,0 +1,17 @@
+%% F1 - The framework at a glance (surface level, horizontal)
+flowchart LR
+  M([Free-text<br/>health message]):::ext --> R["Read<br/><i>language understanding</i>"]:::agent
+  R --> D{"Decide urgency<br/>or ask"}:::core
+  D -- confident --> P["Prioritise<br/>&amp; route"]:::proc
+  D -. "ask one<br/>question" .-> F["Follow-up"]:::core
+  F -. answer .-> D
+  P --> A([Home care &middot;<br/>alert &middot; referral]):::ext
+
+  N["The model reads &middot; deterministic logic decides"]:::note
+  N -.- D
+
+  classDef ext fill:#EEF0F3,stroke:#8A9099,color:#2F343A;
+  classDef agent fill:#ECE6F6,stroke:#5E4B8B,color:#2E2150;
+  classDef core fill:#E6F0E9,stroke:#3C8A5A,color:#17402A;
+  classDef proc fill:#E7EEF7,stroke:#3B6098,color:#16314F;
+  classDef note fill:#FBF1DD,stroke:#B7892B,color:#4A3A10;

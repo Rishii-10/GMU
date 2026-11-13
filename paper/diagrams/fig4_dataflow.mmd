@@ -1,0 +1,10 @@
+%% F5 - The shared case record, enriched stage by stage (single row, uniform width)
+flowchart LR
+  s0([raw<br/>message]):::ext --> s1["Structured case<br/>symptoms, age"]:::proc
+  s1 --> s2["Symptom terms<br/>present / absent / unknown"]:::proc
+  s2 --> s3["Urgency level<br/>+ priority"]:::core
+  s3 --> s4([Facility, route<br/>+ handoff summary]):::ext
+
+  classDef ext fill:#EEF0F3,stroke:#8A9099,color:#2F343A;
+  classDef core fill:#E6F0E9,stroke:#3C8A5A,color:#17402A;
+  classDef proc fill:#E7EEF7,stroke:#3B6098,color:#16314F;

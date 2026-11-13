@@ -1,0 +1,14 @@
+%% F8 - The extension: surveillance through the shared record (single row, clean arrows)
+flowchart LR
+  G["Decide urgency<br/><i>decision path, unchanged</i>"]:::core --> ST[("recorded<br/>cases")]:::record
+  ST --> SEAM{{"the case<br/>stream"}}:::record
+  SEAM --> SURV["Read the stream,<br/>find unusual clusters"]:::agent
+  SURV --> AL{"out of<br/>hand?"}:::core
+  AL -- yes --> BR["Alert +<br/>recommended action"]:::alert
+  AL -- no --> SIL([stay silent]):::ext
+
+  classDef ext fill:#EEF0F3,stroke:#8A9099,color:#2F343A;
+  classDef agent fill:#ECE6F6,stroke:#5E4B8B,color:#2E2150;
+  classDef core fill:#E6F0E9,stroke:#3C8A5A,color:#17402A;
+  classDef record fill:#FBF1DD,stroke:#B7892B,color:#4A3A10;
+  classDef alert fill:#F8E8E7,stroke:#B4453F,color:#5A1A17;

@@ -1,0 +1,13 @@
+%% F2 - The problem as four coordinated tasks (horizontal)
+flowchart LR
+  C([Caller /<br/>health worker]):::ext --> T1["T1 &middot; Understand<br/>message &rarr; case"]:::agent
+  T1 --> T2{"T2 &middot; Decide<br/>urgency, or ask"}:::core
+  T2 --> T3["T3 &middot; Prioritise<br/>within a level"]:::proc
+  T3 --> T4["T4 &middot; Route<br/>to a facility"]:::proc
+  T4 --> O([Per-role<br/>output]):::ext
+  T2 -. "active follow-up" .-> T2
+
+  classDef ext fill:#EEF0F3,stroke:#8A9099,color:#2F343A;
+  classDef agent fill:#ECE6F6,stroke:#5E4B8B,color:#2E2150;
+  classDef core fill:#E6F0E9,stroke:#3C8A5A,color:#17402A;
+  classDef proc fill:#E7EEF7,stroke:#3B6098,color:#16314F;
