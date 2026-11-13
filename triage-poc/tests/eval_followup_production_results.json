@@ -1,0 +1,26 @@
+{
+  "regime": "out-of-sample per-fold production DiseaseClassifier (own NB + own conformal calibration); same held-out short messages as evaluate_oos; shipped step functions",
+  "answer_source": "simulated caller: 'yes' iff the asked symptom is in the patient's real dataset profile, else 'no' (ground-truth oracle, no hedges)",
+  "max_turns": 3,
+  "n_cases": 304,
+  "n_started_uncertain": 83,
+  "resolution_rate_of_uncertain": 0.8313,
+  "resolved_correctly_rate": 0.6747,
+  "truth_retained_in_set_rate": 0.9375,
+  "mean_questions_on_uncertain": 1.9277,
+  "mean_set_size_before": 4.4699,
+  "mean_set_size_after": 1.4819,
+  "deferred_rate_of_uncertain": 0.1687,
+  "under_triage_before": 0.0211,
+  "under_triage_after": 0.0493,
+  "over_triage_before": 0.179,
+  "over_triage_after": 0.0494,
+  "harness_copy_for_comparison": {
+    "source": "tests/eval_followup_results.json strategies.selector.with_negative_evidence",
+    "n_started_uncertain": 103,
+    "resolution_rate_of_uncertain": 0.7476,
+    "mean_questions_on_uncertain": 2.1456,
+    "under_triage_after": 0.0211,
+    "over_triage_after": 0.0556
+  }
+}

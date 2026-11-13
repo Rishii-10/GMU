@@ -18,15 +18,17 @@ SURVEILLANCE_BRIEF_SYSTEM_PROMPT = (
     "You are a public-health surveillance assistant writing for a district "
     "health officer. You are given a detected signal: a village, a disease, how "
     "many cases this week versus the recent baseline, the affected age group, "
-    "and a recommended action already decided by the system. Write a short "
+    "a recommended action already decided by the system, and the results of the "
+    "actions the system already took (tool results). Write a short "
     "situational brief (at most 80 words): what is happening, how unusual it is, "
     "and the recommended next step. Plain text, no markdown, measured tone (no "
     "alarmism), and invent nothing beyond the facts given."
 )
 
 
-def _build_prompt(signal: OutbreakSignal, level: AlertLevel, action: str) -> str:
+def _build_prompt(signal: OutbreakSignal, level: AlertLevel, action: str, facts: Optional[dict] = None) -> str:
     age = signal.dominant_age_band or "all ages"
+    tool_lines = [f"Tool result ({k}): {v}" for k, v in (facts or {}).items()]
     return "\n".join([
         f"Alert level: {level.value}",
         f"Village: {signal.area}",
@@ -36,19 +38,21 @@ def _build_prompt(signal: OutbreakSignal, level: AlertLevel, action: str) -> str
         f"Deviation score: {signal.score} (severity-weighted {signal.weighted_score})",
         f"Most affected age group: {age}",
         f"Recommended action: {action}",
+        *tool_lines,
         "Write the brief now.",
     ])
 
 
-def _fallback_brief(signal: OutbreakSignal, level: AlertLevel, action: str) -> str:
+def _fallback_brief(signal: OutbreakSignal, level: AlertLevel, action: str, facts: Optional[dict] = None) -> str:
     """Deterministic brief when the LLM tier is unreachable -- same facts, plain
     wording, nothing invented."""
     age = signal.dominant_age_band or "all ages"
+    done = " ".join(f"{v}." for v in (facts or {}).values())
     return (
         f"{level.value}: {signal.area} shows {signal.observed} {signal.disease} "
         f"case(s) this week versus a recent baseline of {signal.baseline_mean} "
         f"(deviation score {signal.score}). Most affected: {age}. "
-        f"Recommended action: {action}"
+        f"Recommended action: {action}" + (f" Actions taken: {done}" if done else "")
     )
 
 
@@ -57,13 +61,15 @@ def generate_brief(
     level: AlertLevel,
     action: str,
     backend: Optional[LLMBackend] = None,
+    facts: Optional[dict] = None,
 ) -> str:
-    """Natural-language brief for one alert. With no backend, or an unreachable
-    one, returns the deterministic fallback."""
+    """Natural-language brief for one alert, grounded in the tool results
+    (`facts`: tool name -> one-line summary). With no backend, or an
+    unreachable one, returns the deterministic fallback."""
     if backend is None:
-        return _fallback_brief(signal, level, action)
+        return _fallback_brief(signal, level, action, facts)
     try:
         return backend.generate_text(SURVEILLANCE_BRIEF_SYSTEM_PROMPT,
-                                     _build_prompt(signal, level, action))
+                                     _build_prompt(signal, level, action, facts))
     except BackendUnavailable:
-        return _fallback_brief(signal, level, action)
+        return _fallback_brief(signal, level, action, facts)

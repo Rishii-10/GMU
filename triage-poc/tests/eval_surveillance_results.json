@@ -1,0 +1,223 @@
+{
+  "regime": "synthetic, seeded: 5 demo villages x 8 diseases, Poisson weekly background per (village, disease); outbreak = extra under-5 Gastroenteritis cases in one random village. Measures the detector + alert policy, NOT real epidemiology.",
+  "detector": "baseline deviation (current week vs prior 4 weeks), min 5 cases, z >= 2, severity-weighted; WATCH >= 3, ALERT >= 6 (app.surveillance.detect / alert_policy)",
+  "detected_means": "a WATCH or ALERT surfaced for the injected (village, disease)",
+  "n_seeds": 30,
+  "detection": [
+    {
+      "noise": "low",
+      "background_rate_per_pair_week": 0.5,
+      "outbreak_extra_cases": 0,
+      "runs": 30,
+      "detection_rate": null,
+      "alert_level_share_of_detections": null,
+      "false_alarms_per_area_week": 0.0067
+    },
+    {
+      "noise": "low",
+      "background_rate_per_pair_week": 0.5,
+      "outbreak_extra_cases": 3,
+      "runs": 30,
+      "detection_rate": 0.0,
+      "alert_level_share_of_detections": null,
+      "false_alarms_per_area_week": 0.0
+    },
+    {
+      "noise": "low",
+      "background_rate_per_pair_week": 0.5,
+      "outbreak_extra_cases": 5,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 0.9333,
+      "false_alarms_per_area_week": 0.0067
+    },
+    {
+      "noise": "low",
+      "background_rate_per_pair_week": 0.5,
+      "outbreak_extra_cases": 8,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 1.0,
+      "false_alarms_per_area_week": 0.0
+    },
+    {
+      "noise": "low",
+      "background_rate_per_pair_week": 0.5,
+      "outbreak_extra_cases": 12,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 1.0,
+      "false_alarms_per_area_week": 0.0
+    },
+    {
+      "noise": "low",
+      "background_rate_per_pair_week": 0.5,
+      "outbreak_extra_cases": 16,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 1.0,
+      "false_alarms_per_area_week": 0.0
+    },
+    {
+      "noise": "medium",
+      "background_rate_per_pair_week": 1.5,
+      "outbreak_extra_cases": 0,
+      "runs": 30,
+      "detection_rate": null,
+      "alert_level_share_of_detections": null,
+      "false_alarms_per_area_week": 0.0933
+    },
+    {
+      "noise": "medium",
+      "background_rate_per_pair_week": 1.5,
+      "outbreak_extra_cases": 3,
+      "runs": 30,
+      "detection_rate": 0.3667,
+      "alert_level_share_of_detections": 0.6364,
+      "false_alarms_per_area_week": 0.0667
+    },
+    {
+      "noise": "medium",
+      "background_rate_per_pair_week": 1.5,
+      "outbreak_extra_cases": 5,
+      "runs": 30,
+      "detection_rate": 0.9333,
+      "alert_level_share_of_detections": 0.7143,
+      "false_alarms_per_area_week": 0.1067
+    },
+    {
+      "noise": "medium",
+      "background_rate_per_pair_week": 1.5,
+      "outbreak_extra_cases": 8,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 0.9667,
+      "false_alarms_per_area_week": 0.1067
+    },
+    {
+      "noise": "medium",
+      "background_rate_per_pair_week": 1.5,
+      "outbreak_extra_cases": 12,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 1.0,
+      "false_alarms_per_area_week": 0.0733
+    },
+    {
+      "noise": "medium",
+      "background_rate_per_pair_week": 1.5,
+      "outbreak_extra_cases": 16,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 1.0,
+      "false_alarms_per_area_week": 0.0467
+    },
+    {
+      "noise": "high",
+      "background_rate_per_pair_week": 3.0,
+      "outbreak_extra_cases": 0,
+      "runs": 30,
+      "detection_rate": null,
+      "alert_level_share_of_detections": null,
+      "false_alarms_per_area_week": 0.3
+    },
+    {
+      "noise": "high",
+      "background_rate_per_pair_week": 3.0,
+      "outbreak_extra_cases": 3,
+      "runs": 30,
+      "detection_rate": 0.5,
+      "alert_level_share_of_detections": 0.0667,
+      "false_alarms_per_area_week": 0.2133
+    },
+    {
+      "noise": "high",
+      "background_rate_per_pair_week": 3.0,
+      "outbreak_extra_cases": 5,
+      "runs": 30,
+      "detection_rate": 0.8,
+      "alert_level_share_of_detections": 0.5,
+      "false_alarms_per_area_week": 0.2933
+    },
+    {
+      "noise": "high",
+      "background_rate_per_pair_week": 3.0,
+      "outbreak_extra_cases": 8,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 0.8333,
+      "false_alarms_per_area_week": 0.2333
+    },
+    {
+      "noise": "high",
+      "background_rate_per_pair_week": 3.0,
+      "outbreak_extra_cases": 12,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 0.9667,
+      "false_alarms_per_area_week": 0.2333
+    },
+    {
+      "noise": "high",
+      "background_rate_per_pair_week": 3.0,
+      "outbreak_extra_cases": 16,
+      "runs": 30,
+      "detection_rate": 1.0,
+      "alert_level_share_of_detections": 1.0,
+      "false_alarms_per_area_week": 0.32
+    }
+  ],
+  "time_to_detect": [
+    {
+      "noise": "low",
+      "background_rate_per_pair_week": 0.5,
+      "ramp_cases_per_week": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12
+      ],
+      "runs": 30,
+      "detected_within_ramp": 1.0,
+      "mean_weeks_to_detect": 1.6,
+      "median_weeks_to_detect": 2.0,
+      "cases_in_week_of_detection_median": 6
+    },
+    {
+      "noise": "medium",
+      "background_rate_per_pair_week": 1.5,
+      "ramp_cases_per_week": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12
+      ],
+      "runs": 30,
+      "detected_within_ramp": 1.0,
+      "mean_weeks_to_detect": 0.967,
+      "median_weeks_to_detect": 1.0,
+      "cases_in_week_of_detection_median": 4
+    },
+    {
+      "noise": "high",
+      "background_rate_per_pair_week": 3.0,
+      "ramp_cases_per_week": [
+        2,
+        4,
+        6,
+        8,
+        10,
+        12
+      ],
+      "runs": 30,
+      "detected_within_ramp": 1.0,
+      "mean_weeks_to_detect": 1.167,
+      "median_weeks_to_detect": 1.0,
+      "cases_in_week_of_detection_median": 4
+    }
+  ]
+}

@@ -169,6 +169,16 @@ class ExtractedCase(BaseModel):
             "negative finding. `symptom` is the joined legacy view of this."
         ),
     )
+    denied_symptoms: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Symptom phrases the caller EXPLICITLY DENIED in the message "
+            "('no cough', 'ulti nahi hai' -> ['cough', 'ulti']), never mixed "
+            "into `symptoms`. Filled by the LLM's `denied_symptoms` key and by "
+            "the deterministic app.negation scan of the raw text. Empty = no "
+            "denial stated, which is NOT the same as 'everything else absent'."
+        ),
+    )
     duration: Optional[str] = None
     severity: Severity = Severity.UNKNOWN
     age_group: Optional[AgeGroup] = None
@@ -208,15 +218,16 @@ class ExtractedCase(BaseModel):
     absent_symptom_tokens: list[str] = Field(
         default_factory=list,
         description=(
-            "Vocabulary tokens the caller EXPLICITLY DENIED, i.e. answered "
-            "'no' to during the adaptive follow-up loop (Flow C). This is a "
+            "Vocabulary tokens the caller EXPLICITLY DENIED: answered 'no' to "
+            "during the adaptive follow-up loop (Flow C), or stated as a denial "
+            "in the message itself (`denied_symptoms`, matched at a strict "
+            "confidence). This is a "
             "CONFIRMED NEGATIVE FINDING and is deliberately a separate field "
             "from symptom_tokens so the hard invariant above still holds: an "
             "empty symptom_tokens list never means 'absent', and an absent "
             "token is never silently treated as present. Only ever populated "
-            "from a parsed 'no' answer -- never inferred from silence, and "
-            "never from the first free-text message (a caller not mentioning "
-            "a symptom is NOT the same as denying it). The disease classifier "
+            "from an explicit denial -- never inferred from silence (a caller "
+            "not mentioning a symptom is NOT the same as denying it). The disease classifier "
             "turns these into a Bernoulli absence term; see "
             "app.disease_classifier.DiseaseClassifier._raw_posteriors."
         ),
@@ -282,7 +293,7 @@ class EmergencyResult(BaseModel):
 
     All attribute scores are 0-1 normalised. Weights are the AHP eigenvector
     derived from the pairwise comparison matrix documented in
-    app/emergency_scorer.py (CR = 0.0205, well within Saaty's 0.10 limit).
+    app/emergency_scorer.py (CR = 0.0198, computed at import; well within Saaty's 0.10 limit).
     """
     score: int                           # 1-10 composite emergency score
     band: EmergencyBand                  # NON_URGENT / URGENT / EMERGENCY
@@ -363,6 +374,21 @@ class ClassificationResult(BaseModel):
         default_factory=list,
         description="CP prediction set: diseases the true diagnosis is formally "
                     "guaranteed to be in (≥95% coverage). Size>1 triggers follow-up.",
+    )
+
+    # Deferral to the health worker (set by agent1_extraction.finalize_after_followup
+    # once the follow-up exchange has ended). A FLAG, not a label: the urgency
+    # label is never lowered by deferring -- a deferred case with a SEVERE
+    # worst-case label is still routed as SEVERE -- it records that the system
+    # could not finish the assessment itself and has handed the case to a human.
+    deferred: bool = Field(
+        default=False,
+        description="True when the follow-up exchange ended without resolving the "
+                    "case and it was handed to the health worker's queue.",
+    )
+    deferral_reason: Optional[str] = Field(
+        default=None,
+        description="Why the case was deferred, one of agent1_extraction.DEFERRAL_REASONS.",
     )
 
     # Stage 2 emergency scoring (populated when a confident diagnosis is reached)

@@ -61,6 +61,7 @@ from app.emergency_scorer import AHP_WEIGHTS, score_emergency
 from app.routing.demo_facilities import VILLAGES, build_demo_facility_db
 from app.routing.router import (
     DEFAULT_RADIUS_KM,
+    MockRoutingProvider,
     filter_eligible_facilities,
     is_facility_open,
     route,
@@ -162,10 +163,19 @@ def run_routing_evaluation() -> dict:
             if score_facility(f, coords).straight_line_distance_km <= DEFAULT_RADIUS_KM
         ]
         eligible = filter_eligible_facilities(in_radius, urgency, _AT)
+        # Selection rule since 2026-11-13: shortest travel time from the SAME
+        # routing provider, evaluated here over EVERY eligible facility (the
+        # router only routes its nearest MAX_ROUTED_CANDIDATES, so this also
+        # checks that cap never discards the true optimum on this network).
+        provider = MockRoutingProvider()
         best = min(
-            (score_facility(f, coords) for f in eligible),
-            key=lambda s: s.score, default=None,
+            (
+                (provider.get_route(coords, (f.lat, f.lon)).eta_minutes, not f.has_doctor_24hr, f.name, f)
+                for f in eligible
+            ),
+            key=lambda t: t[:3], default=None,
         )
+        best = None if best is None else score_facility(best[3], coords)
 
         chosen = dispatch.facility
         checks.append({

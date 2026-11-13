@@ -33,6 +33,7 @@ from tests.evaluate_oos import run_evaluation
 from tests.evaluate_followup import _run_one, _summarize
 
 _LLM_JSON = Path(__file__).resolve().parent / "eval_llm_results.json"
+_PROD_FU_JSON = Path(__file__).resolve().parent / "eval_followup_production_results.json"
 
 
 def _stage(name: str, label: str, misses_urgent, over_calls, source: str) -> dict:
@@ -61,10 +62,14 @@ def run_composed_evaluation() -> dict:
     comps = oos.get("comparisons", {})
     c1 = comps.get("baseline_flat_nb_top1", {})
     c2 = comps.get("ablation_no_worstcase", {})
+    c2a = comps.get("ablation_cp_only", {})
     stages.append(_stage("C1", "+ structured NB (argmax)",
                          c1.get("under_triage_rate_emergency_severe"),
                          c1.get("over_triage_rate_mild_moderate"), "evaluate_oos.py"))
-    stages.append(_stage("C2", "+ abstain gate (conformal set)",
+    stages.append(_stage("C2a", "+ abstain gate (conformal set) only",
+                         c2a.get("under_triage_rate_emergency_severe"),
+                         c2a.get("over_triage_rate_mild_moderate"), "evaluate_oos.py"))
+    stages.append(_stage("C2", "+ emergency boost",
                          c2.get("under_triage_rate_emergency_severe"),
                          c2.get("over_triage_rate_mild_moderate"), "evaluate_oos.py"))
     stages.append(_stage("C3", "+ worst-case guard (full system)",
@@ -74,17 +79,27 @@ def run_composed_evaluation() -> dict:
     # C4 -- add the adaptive follow-up loop (selector, absence-aware = shipped)
     kb, full = DiseaseKB.load(), get_default_classifier()
     fu = _summarize(_run_one("selector", True, kb, full))
-    stages.append(_stage("C4", "+ active follow-up (shipped)",
+    stages.append(_stage("C4", "+ active follow-up (harness loop)",
                          fu.get("under_triage_after"), fu.get("over_triage_after"),
                          "evaluate_followup.py"))
+
+    # C5 -- the same, through the SHIPPED step functions on per-fold classifiers
+    # with their own conformal calibration (fully out-of-sample). The number to
+    # quote for the shipped system; C3/C4 reuse a full-data conformal threshold.
+    if _PROD_FU_JSON.exists():
+        p = json.loads(_PROD_FU_JSON.read_text())
+        stages.append(_stage("C5", "shipped path, fully out-of-sample",
+                             p.get("under_triage_after"), p.get("over_triage_after"),
+                             "evaluate_followup_production.py"))
 
     return {
         "metric_note": "misses_urgent = EMERGENCY/SEVERE surfaced below true tier; "
                        "over_calls = MILD/MODERATE surfaced as EMERGENCY/SEVERE. "
                        "Same held-out short messages throughout; C0 needs Ollama.",
-        "stage_mapping": "C1 adds no safety machinery; the conformal set enters at "
-                         "C2; the worst-case guard (C3) is what removes under-triage; "
-                         "C4 adds the follow-up loop on top of the full system.",
+        "stage_mapping": "C1 adds no safety machinery; the conformal set enters alone at "
+                         "C2a; C2 adds the emergency boost; the worst-case guard (C3) is what "
+                         "removes under-triage; C4 adds the follow-up loop (harness copy); C5 is "
+                         "the shipped step functions with fully out-of-sample calibration.",
         "stages": stages,
     }
 

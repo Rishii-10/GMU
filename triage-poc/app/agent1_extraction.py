@@ -45,6 +45,7 @@ from app.rules_engine import classify as rules_classify
 from app.disambiguation import DisambiguationResult, Disambiguator, StubDisambiguator
 from app.case_store import CaseStore
 from app import followup_policy
+from app import negation
 from app import followup_question_selector as fqs
 
 EXTRACTION_SYSTEM_PROMPT = """You are a medical field-extraction assistant for a rural SMS/IVR triage \
@@ -55,6 +56,7 @@ strict JSON only, matching exactly this shape:
 
 {
   "symptoms": [string, ...],
+  "denied_symptoms": [string, ...],
   "duration": string or null,
   "severity": "mild" | "moderate" | "severe" | "unknown",
   "age_group": "infant" | "child" | "adult" | "elderly" | null,
@@ -104,6 +106,17 @@ Examples:
   - "my son is 3 years old" -> "symptoms": []
   - "thank you" -> "symptoms": []
   - "hello doctor, are you there?" -> "symptoms": []
+
+DENIED SYMPTOMS -- "denied_symptoms" lists every symptom the caller says the patient does NOT have \
+("no cough", "not breathless", "ulti nahi hai"), without the negation word. A denied symptom must \
+NEVER appear in "symptoms". Something the patient cannot do ("not able to drink", "can't breathe", \
+"not eating", "no appetite") is a symptom, not a denial. Return [] when nothing is denied. Report \
+ONLY denials actually written in THIS message -- never copy one from the examples below.
+Examples:
+  - "fever but no cough" -> "symptoms": ["fever"], "denied_symptoms": ["cough"]
+  - "chest pain, not breathless, no sweating" -> "symptoms": ["chest pain"], "denied_symptoms": ["breathless", "sweating"]
+  - "sir dard hai, ulti nahi hai" -> "symptoms": ["sir dard"], "denied_symptoms": ["ulti"]
+  - "child not able to drink" -> "symptoms": ["not able to drink"], "denied_symptoms": []
 
 Only set a danger_signs/cough/diarrhea field to true or false if the message actually states or \
 clearly implies it; otherwise leave it null. Exam-only signs (breathing rate count, chest indrawing, \
@@ -483,6 +496,32 @@ def _normalize_symptom_fields(parsed: dict) -> dict:
         # Legacy single "symptom" string: keep it verbatim, derive the list.
         legacy = parsed.get("symptom")
         parsed["symptoms"] = _collect([legacy]) if isinstance(legacy, str) else []
+    denied = parsed.get("denied_symptoms")
+    if isinstance(denied, str):
+        denied = [denied]
+    parsed["denied_symptoms"] = _collect(denied) if isinstance(denied, list) else []
+    return parsed
+
+
+def _apply_negation_scan(raw_text: str, parsed: dict) -> dict:
+    """Move denied symptoms out of `symptoms` and recover denials the LLM dropped.
+
+    Runs on the RAW message, independently of the LLM (app.negation). Needed
+    because llama3.2:3b, measured live, drops English denials ("fever but no
+    cough" -> ["fever"]) and copies the noun out of a Hinglish one ("ulti nahi
+    hai" -> ["ulti"]), which the matcher then reads as vomiting PRESENT. The
+    legacy `symptom` string is rebuilt only when the list actually changed, so
+    callers that never mention a denial see an identical case.
+    """
+    parsed = dict(parsed)
+    symptoms = list(parsed.get("symptoms") or [])
+    present, denied = negation.split_denials(
+        raw_text, symptoms, parsed.get("denied_symptoms") or []
+    )
+    parsed["denied_symptoms"] = denied
+    if present != symptoms:
+        parsed["symptoms"] = present
+        parsed["symptom"] = ", ".join(present) if present else None
     return parsed
 
 
@@ -592,6 +631,7 @@ def extract_case(
     parsed = backend.extract(raw_text, context=context)
     parsed = _sanitize_enum_fields(parsed)
     parsed = _normalize_symptom_fields(parsed)
+    parsed = _apply_negation_scan(raw_text, parsed)
     parsed = _apply_infant_age_floor(raw_text, parsed)
     try:
         return ExtractedCase(
@@ -640,6 +680,55 @@ DANGER_SIGN_FOLLOWUP_QUESTIONS: dict[str, str] = {
     "convulsions": "Has the patient had any convulsions or fits during this illness?",
     "lethargic_or_unconscious": "Is the patient unusually sleepy, hard to wake, or unconscious?",
 }
+
+# What a "yes" to each DANGER_SIGN_FOLLOWUP_QUESTIONS template means for the
+# danger-sign field. The drink question is phrased positively ("Is the patient
+# ABLE to drink...?") because that is how a caregiver understands it, so a
+# "yes" sets not_able_to_drink_or_breastfeed=False; every other template asks
+# about the sign directly, so "yes" sets it True.
+DANGER_SIGN_YES_MEANS_PRESENT: dict[str, bool] = {
+    "not_able_to_drink_or_breastfeed": False,
+    "vomits_everything": True,
+    "convulsions": True,
+    "lethargic_or_unconscious": True,
+}
+
+# Trail tokens for danger-sign questions carry this prefix so they can never be
+# mistaken for (or counted as) a dataset symptom token.
+DANGER_SIGN_TOKEN_PREFIX = "danger_sign:"
+
+
+def is_danger_sign_token(token: Optional[str]) -> bool:
+    return bool(token) and token.startswith(DANGER_SIGN_TOKEN_PREFIX)
+
+
+def next_danger_sign_question(
+    case: ExtractedCase, result: ClassificationResult, trail: Optional[list[dict]] = None
+) -> Optional[tuple[str, str]]:
+    """The next unassessed WHO general danger sign to ask about, or None.
+
+    Fires only for an INCOMPLETE_ASSESSMENT whose missing fields include a
+    danger sign that is still None on the case (the paediatric IMNCI gate,
+    rules_engine.check_danger_sign_completeness). Fixed order, starting with
+    the ability to drink, because IMCI requires all four before any
+    classification is safe -- there is no "most informative" choice to make
+    among mandatory checks. A sign already asked (in `trail`) and left
+    unanswered is not asked again -- it stays None, so the case stays
+    INCOMPLETE and is deferred to the health worker instead of looping.
+    Returns (token, english_question).
+    """
+    if result.label != ClassificationLabel.INCOMPLETE_ASSESSMENT:
+        return None
+    asked = {t.get("token") for t in trail or []}
+    for field in DANGER_SIGN_FOLLOWUP_QUESTIONS:
+        if (
+            field in result.missing_fields
+            and getattr(case.danger_signs, field) is None
+            and DANGER_SIGN_TOKEN_PREFIX + field not in asked
+        ):
+            return DANGER_SIGN_TOKEN_PREFIX + field, DANGER_SIGN_FOLLOWUP_QUESTIONS[field]
+    return None
+
 
 # One generic clarifier for app.followup_policy.missing_required_adult()'s
 # single sentinel field ("symptom_tokens" -- see that function's docstring
@@ -844,7 +933,47 @@ _RAW_TEXT_FALLBACK_MAX_WORDS = 4
 _RAW_TEXT_FALLBACK_MIN_CONFIDENCE = 0.90
 
 
+# A denied phrase is matched far more strictly than a reported one. A wrong
+# PRESENT token is caught by the worst-case label; a wrong ABSENT token is not,
+# because a denial can rule a severe disease out of the set. Same bar, and same
+# measured reason, as the raw-text fallback below (2026-11-13, this index):
+# bare symptom names score 0.977-1.000 ("breathless", "cough", "ulti"), while
+# generic/non-symptom words reach 0.858 ("pain" -> joint_pain) and 0.818
+# ("khansi" -> itching, before its alias was added).
+_DENIED_SYMPTOM_MIN_CONFIDENCE = 0.90
+
+
 def _apply_disambiguation(case: ExtractedCase, disambiguator: Disambiguator) -> ExtractedCase:
+    """Matches reported symptoms (see _match_reported_symptoms) and then the
+    caller's explicit denials (`denied_symptoms`) to dataset tokens.
+
+    Denials go to `absent_symptom_tokens` only, matched at
+    _DENIED_SYMPTOM_MIN_CONFIDENCE, and never overlap `symptom_tokens`: when
+    a token is both reported and denied, present wins (the conservative
+    reading, since the worst-case label protects a present token and nothing
+    protects a wrongly-absent one).
+    """
+    case = _match_reported_symptoms(case, disambiguator)
+    if not case.denied_symptoms:
+        return case
+    absent = list(case.absent_symptom_tokens)
+    for phrase in case.denied_symptoms:
+        for clause in _split_symptom_clauses(phrase):
+            m = disambiguator.match_dataset_symptom(clause)
+            tok = m.matched_category
+            if (
+                tok is not None
+                and m.confidence >= _DENIED_SYMPTOM_MIN_CONFIDENCE
+                and tok not in case.symptom_tokens
+                and tok not in absent
+            ):
+                absent.append(tok)
+    if absent == list(case.absent_symptom_tokens):
+        return case
+    return case.model_copy(update={"absent_symptom_tokens": absent})
+
+
+def _match_reported_symptoms(case: ExtractedCase, disambiguator: Disambiguator) -> ExtractedCase:
     """Runs disambiguation on the free-text `symptom` field once, applies
     its result to `symptom`/`disambiguation_confidence`, and then hands the
     same result to apply_disambiguation_fallback() to (maybe) backfill
@@ -1189,7 +1318,15 @@ def next_followup_question(
     """
     from app.disease_classifier import get_default_classifier, severity_for_disease
 
-    if len(trail) >= max_turns or len(result.prediction_set) <= 1:
+    # Mandatory danger-sign checks come first and do not consume the
+    # symptom-question budget: IMCI needs all four answered, and one "yes"
+    # forces EMERGENCY on the next classify(), which then ends the loop.
+    danger_q = next_danger_sign_question(case, result, trail)
+    if danger_q is not None:
+        return danger_q
+
+    symptom_turns = sum(1 for t in trail if not is_danger_sign_token(t.get("token")))
+    if symptom_turns >= max_turns or len(result.prediction_set) <= 1:
         return None  # cap reached, CONFIDENT, or nothing to narrow
 
     clf = get_default_classifier()
@@ -1244,6 +1381,10 @@ def record_followup_answer(
 ) -> "ExtractedCase":
     """Store one Q&A in the trail and fold the answer into the case.
 
+    A danger-sign token (DANGER_SIGN_TOKEN_PREFIX) sets that WHO danger-sign
+    field to True/False using DANGER_SIGN_YES_MEANS_PRESENT; an unparseable
+    reply leaves it None ("not assessed"), never False.
+
     A 'yes' appends to `symptom_tokens` (a positive finding). A 'no' appends
     to `absent_symptom_tokens` (a CONFIRMED NEGATIVE finding), which the
     classifier turns into a Bernoulli absence term.
@@ -1262,6 +1403,13 @@ def record_followup_answer(
     """
     trail.append({"question": question, "answer": answer, "token": token})
     verdict = parse_yes_no(answer)
+    if is_danger_sign_token(token):
+        if verdict is None:
+            return case
+        field = token[len(DANGER_SIGN_TOKEN_PREFIX):]
+        value = verdict if DANGER_SIGN_YES_MEANS_PRESENT[field] else not verdict
+        signs = case.danger_signs.model_copy(update={field: value})
+        return case.model_copy(update={"danger_signs": signs})
     if verdict is True and token not in case.symptom_tokens:
         case = case.model_copy(update={"symptom_tokens": case.symptom_tokens + [token]})
     elif verdict is False and token not in case.absent_symptom_tokens:
@@ -1269,6 +1417,86 @@ def record_followup_answer(
             update={"absent_symptom_tokens": case.absent_symptom_tokens + [token]}
         )
     return case
+
+
+# Why a case is handed to the health worker, with the plain-language
+# explanation shown in the health-worker queue.
+DEFERRAL_REASONS: dict[str, str] = {
+    "YOUNG_INFANT_NO_VALIDATED_RULESET": "Infant under 2 months -- no validated rules; needs a health worker.",
+    "DANGER_SIGNS_UNANSWERED": "One or more WHO danger signs could not be confirmed with the caller.",
+    "AGE_UNKNOWN": "The patient's age is not known, so no assessment route can be chosen.",
+    "SYMPTOMS_INSUFFICIENT": "Not enough symptom information to assess.",
+    "ASSESSMENT_INCOMPLETE": "The assessment could not be completed from the caller's answers.",
+    "DIFFERENTIAL_UNRESOLVED": "Questions did not narrow the case to one condition; labelled by the most serious one still possible.",
+}
+
+_INCOMPLETE_CONDITION_TO_REASON = {
+    "YOUNG_INFANT_NO_VALIDATED_RULESET": "YOUNG_INFANT_NO_VALIDATED_RULESET",
+    "DANGER_SIGNS_NOT_FULLY_ASSESSED": "DANGER_SIGNS_UNANSWERED",
+    "AGE_UNKNOWN_CANNOT_ROUTE": "AGE_UNKNOWN",
+    "INSUFFICIENT_SYMPTOM_DATA": "SYMPTOMS_INSUFFICIENT",
+}
+
+
+def finalize_after_followup(
+    case: "ExtractedCase", result: "ClassificationResult", trail: list[dict[str, str]]
+) -> "ClassificationResult":
+    """Mark the final result DEFERRED when follow-up could not finish the case.
+
+    Call once the exchange has ended (next_followup_question returned None).
+    Deferred when the case is still INCOMPLETE_ASSESSMENT, or when more than one
+    condition is still possible. The label is NOT changed: an unresolved case
+    keeps its worst-case urgency label (and therefore its routing); deferral
+    only adds that a human must finish the assessment. Idempotent.
+    """
+    if result.label == ClassificationLabel.INCOMPLETE_ASSESSMENT:
+        reason = _INCOMPLETE_CONDITION_TO_REASON.get(result.condition or "", "ASSESSMENT_INCOMPLETE")
+    elif len(result.prediction_set) > 1:
+        reason = "DIFFERENTIAL_UNRESOLVED"
+    else:
+        return result.model_copy(update={"deferred": False, "deferral_reason": None})
+    if result.deferred and result.deferral_reason == reason:
+        return result
+    asked = sum(1 for t in trail if not t.get("unanswered"))
+    note = (
+        f"DEFERRED to health worker ({reason}) after {asked} answered follow-up "
+        f"question(s): {DEFERRAL_REASONS[reason]}"
+    )
+    return result.model_copy(
+        update={"deferred": True, "deferral_reason": reason, "reasoning": list(result.reasoning) + [note]}
+    )
+
+
+# How many unclear replies ("maybe", "not sure", "?") one question tolerates.
+# The first is answered by repeating the question; the second records the
+# question as UNANSWERED (no evidence either way) so the exchange cannot loop.
+MAX_UNCLEAR_REPLIES = 2
+
+
+def apply_followup_reply(
+    case: "ExtractedCase",
+    trail: list[dict[str, str]],
+    token: str,
+    question: str,
+    answer: str,
+    unclear_so_far: int = 0,
+) -> tuple["ExtractedCase", str]:
+    """Handle ONE reply to the pending follow-up question.
+
+    Returns (case, status):
+      - "recorded": a yes/no was read and folded into the case;
+      - "reask":    the reply was unclear; ask the SAME question again (the
+                    case and trail are unchanged -- a hedge is never coerced);
+      - "unanswered": the MAX_UNCLEAR_REPLIES-th unclear reply; the question
+                    is stored in the trail with no evidence and the loop moves on.
+    The single source of truth for both the UI chat and the blocking loop.
+    """
+    if parse_yes_no(answer) is not None:
+        return record_followup_answer(case, trail, token, question, answer), "recorded"
+    if unclear_so_far + 1 < MAX_UNCLEAR_REPLIES:
+        return case, "reask"
+    trail.append({"question": question, "answer": answer, "token": token, "unanswered": "true"})
+    return case, "unanswered"
 
 
 def classify_with_adaptive_followup(
@@ -1297,8 +1525,16 @@ def classify_with_adaptive_followup(
                 break
             token, question = nxt
             outgoing = gateway.from_english(question) if gateway is not None else question
-            case = record_followup_answer(case, trail, token, question, answer_provider(outgoing))
+            unclear = 0
+            while True:
+                case, status = apply_followup_reply(
+                    case, trail, token, question, answer_provider(outgoing), unclear
+                )
+                if status != "reask":
+                    break
+                unclear += 1
             result = rules_classify(case)
+        result = finalize_after_followup(case, result, trail)
 
     if case_store is not None:
         case_store.record(case, result)

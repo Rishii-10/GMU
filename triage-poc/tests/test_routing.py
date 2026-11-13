@@ -223,9 +223,12 @@ def test_route_urgent_uses_hours_based_filter(db: FacilityDB):
     result_night = route(ClassificationLabel.SEVERE, "Denkanikottai", db, at=NIGHT)
     assert result_day.facility is not None
     assert result_night.facility is not None
-    # PHC A is nearest and open during the day -- but CHC B's capability
-    # bonuses should still make it win the composite score.
-    assert result_day.facility.name == "CHC B"
+    # Selection is by TRAVEL TIME among facilities that meet the case's needs
+    # (2026-11-13; previously straight-line distance minus capability bonuses,
+    # which made CHC B win even when PHC A was nearer and open). DAY is 16:30
+    # IST, so PHC A (09:00-17:00 local) is open and nearest; at NIGHT (03:30
+    # IST) it is closed and CHC B is the fastest open facility.
+    assert result_day.facility.name == "PHC A (Nearest)"
     assert result_night.facility.name == "CHC B"
 
 
@@ -235,7 +238,7 @@ def test_route_reasoning_trail_is_populated(db: FacilityDB):
     assert any("urgency" in r for r in result.reasoning)
     assert any("resolved location" in r for r in result.reasoning)
     assert any("eligible" in r for r in result.reasoning)
-    assert any("top-scored" in r for r in result.reasoning)
+    assert any("fastest by travel time" in r for r in result.reasoning)
 
 
 def test_route_deterministic(db: FacilityDB):

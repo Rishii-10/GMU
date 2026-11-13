@@ -1,6 +1,6 @@
 {
   "metric_note": "misses_urgent = EMERGENCY/SEVERE surfaced below true tier; over_calls = MILD/MODERATE surfaced as EMERGENCY/SEVERE. Same held-out short messages throughout; C0 needs Ollama.",
-  "stage_mapping": "C1 adds no safety machinery; the conformal set enters at C2; the worst-case guard (C3) is what removes under-triage; C4 adds the follow-up loop on top of the full system.",
+  "stage_mapping": "C1 adds no safety machinery; the conformal set enters alone at C2a; C2 adds the emergency boost; the worst-case guard (C3) is what removes under-triage; C4 adds the follow-up loop (harness copy); C5 is the shipped step functions with fully out-of-sample calibration.",
   "stages": [
     {
       "stage": "C0",
@@ -17,8 +17,15 @@
       "source": "evaluate_oos.py"
     },
     {
+      "stage": "C2a",
+      "label": "+ abstain gate (conformal set) only",
+      "misses_urgent": 0.0915,
+      "over_calls": 0.0679,
+      "source": "evaluate_oos.py"
+    },
+    {
       "stage": "C2",
-      "label": "+ abstain gate (conformal set)",
+      "label": "+ emergency boost",
       "misses_urgent": 0.0634,
       "over_calls": 0.0679,
       "source": "evaluate_oos.py"
@@ -32,10 +39,17 @@
     },
     {
       "stage": "C4",
-      "label": "+ active follow-up (shipped)",
+      "label": "+ active follow-up (harness loop)",
       "misses_urgent": 0.0211,
       "over_calls": 0.0556,
       "source": "evaluate_followup.py"
+    },
+    {
+      "stage": "C5",
+      "label": "shipped path, fully out-of-sample",
+      "misses_urgent": 0.0493,
+      "over_calls": 0.0494,
+      "source": "evaluate_followup_production.py"
     }
   ]
 }

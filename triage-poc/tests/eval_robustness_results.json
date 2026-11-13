@@ -17,10 +17,10 @@
     "repeat_label_agreement": 1.0,
     "paraphrase_cases": 20,
     "variants_per_case": 3,
-    "paraphrase_label_agreement": 0.75,
+    "paraphrase_label_agreement": 0.7,
     "distinct_labels_per_paraphrase_set": {
-      "1": 15,
-      "2": 5
+      "1": 14,
+      "2": 6
     },
     "note": "REPEAT isolates LLM nondeterminism; PARAPHRASE is the language-robustness number (real labelled English / Hindi / Hinglish phrasings of the same content)"
   }
